@@ -1,0 +1,111 @@
+{
+  "name": "Padvik — Learn Smarter",
+  "short_name": "Padvik",
+  "description": "AI-powered curriculum learning for Indian K-12 students. CBSE, ICSE, State Boards — Classes 1 to 12.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#7C3AED",
+  "theme_color": "#7C3AED",
+  "scope": "/",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["education", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/mobile-home.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Padvik Home Screen"
+    },
+    {
+      "src": "/screenshots/desktop-home.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Padvik Desktop Dashboard"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "My Exams",
+      "short_name": "Exams",
+      "url": "/dashboard/exams",
+      "description": "View and take your exams",
+      "icons": [{ "src": "/icons/shortcut-exam.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Ask AI",
+      "short_name": "AI Chat",
+      "url": "/dashboard/chat",
+      "description": "Ask AI about any topic",
+      "icons": [{ "src": "/icons/shortcut-chat.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "My Notes",
+      "short_name": "Notes",
+      "url": "/dashboard/learn/notes",
+      "description": "View your saved notes",
+      "icons": [{ "src": "/icons/shortcut-notes.png", "sizes": "96x96" }]
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

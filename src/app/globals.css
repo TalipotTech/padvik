@@ -1,0 +1,217 @@
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  /* Padvik education semantic colors */
+  --color-mastered: hsl(var(--mastered));
+  --color-learning: hsl(var(--learning));
+  --color-not-started: hsl(var(--not-started));
+  --color-correct: hsl(var(--correct));
+  --color-incorrect: hsl(var(--incorrect));
+  --color-skipped: hsl(var(--skipped));
+
+  /* Direct violet palette */
+  --color-violet-50: #F5F3FF;
+  --color-violet-100: #EDE9FE;
+  --color-violet-200: #DDD6FE;
+  --color-violet-300: #C4B5FD;
+  --color-violet-400: #A78BFA;
+  --color-violet-500: #8B5CF6;
+  --color-violet-600: #7C3AED;
+  --color-violet-700: #6D28D9;
+  --color-violet-800: #5B21B6;
+  --color-violet-900: #4C1D95;
+  --color-violet-950: #2E1065;
+
+  /* Chart colors */
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-fade-in: fade-in 0.3s ease-out;
+  --animate-slide-in: slide-in 0.3s ease-out;
+  --animate-pulse-soft: pulse-soft 2s ease-in-out infinite;
+}
+
+@keyframes accordion-down {
+  from { height: 0; }
+  to { height: var(--radix-accordion-content-height); }
+}
+
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); }
+  to { height: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* CSS custom properties for light/dark mode */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 263 47% 13%;
+
+  --card: 270 30% 99%;
+  --card-foreground: 263 47% 13%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 263 47% 13%;
+
+  --primary: 263 70% 50%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 270 25% 95%;
+  --secondary-foreground: 263 47% 20%;
+
+  --muted: 270 15% 95%;
+  --muted-foreground: 263 20% 46%;
+
+  --accent: 280 65% 60%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 142 76% 36%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 38 92% 50%;
+  --warning-foreground: 0 0% 100%;
+
+  --border: 263 20% 90%;
+  --input: 263 20% 90%;
+  --ring: 263 70% 50%;
+
+  --radius: 0.625rem;
+
+  --chart-1: 263 70% 50%;
+  --chart-2: 280 65% 60%;
+  --chart-3: 250 60% 65%;
+  --chart-4: 290 55% 55%;
+  --chart-5: 270 50% 70%;
+
+  --mastered: 142 76% 36%;
+  --learning: 38 92% 50%;
+  --not-started: 263 20% 85%;
+  --correct: 142 76% 36%;
+  --incorrect: 0 84% 60%;
+  --skipped: 263 20% 70%;
+}
+
+.dark {
+  --background: 263 30% 6%;
+  --foreground: 270 10% 93%;
+
+  --card: 263 30% 8%;
+  --card-foreground: 270 10% 93%;
+
+  --popover: 263 30% 8%;
+  --popover-foreground: 270 10% 93%;
+
+  --primary: 263 70% 60%;
+  --primary-foreground: 263 47% 6%;
+
+  --secondary: 263 25% 15%;
+  --secondary-foreground: 270 10% 90%;
+
+  --muted: 263 20% 15%;
+  --muted-foreground: 270 10% 60%;
+
+  --accent: 280 65% 50%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 62% 50%;
+  --destructive-foreground: 0 0% 100%;
+
+  --success: 142 60% 45%;
+  --success-foreground: 0 0% 100%;
+
+  --warning: 38 80% 55%;
+  --warning-foreground: 0 0% 100%;
+
+  --border: 263 20% 18%;
+  --input: 263 20% 18%;
+  --ring: 263 70% 60%;
+
+  --chart-1: 263 70% 60%;
+  --chart-2: 280 65% 55%;
+  --chart-3: 250 60% 55%;
+  --chart-4: 290 55% 50%;
+  --chart-5: 270 50% 60%;
+
+  --mastered: 142 60% 45%;
+  --learning: 38 80% 55%;
+  --not-started: 263 20% 30%;
+  --correct: 142 60% 45%;
+  --incorrect: 0 62% 50%;
+  --skipped: 263 20% 40%;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-feature-settings: "rlig" 1, "calt" 1;
+}

@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Edit(**)",
+      "Write(**)",
+      "Bash(pnpm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(git *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(dir *)",
+      "Bash(echo *)",
+      "Bash(type *)",
+      "Bash(cd *)",
+      "Bash(pg_isready)",
+      "Bash(psql *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(format *)",
+      "Bash(shutdown *)"
+    ]
+  },
+  "model": "opus",
+  "thinking": "always"
+}

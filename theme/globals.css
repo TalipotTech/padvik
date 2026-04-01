@@ -1,0 +1,122 @@
+/* Padvik Purple Theme — globals.css
+   Copy this into src/app/globals.css during project scaffold.
+   These CSS variables are used by shadcn/ui components.
+*/
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 263 47% 13%;
+
+    --card: 270 30% 99%;
+    --card-foreground: 263 47% 13%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 263 47% 13%;
+
+    --primary: 263 70% 50%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 270 25% 95%;
+    --secondary-foreground: 263 47% 20%;
+
+    --muted: 270 15% 95%;
+    --muted-foreground: 263 20% 46%;
+
+    --accent: 280 65% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 263 20% 90%;
+    --input: 263 20% 90%;
+    --ring: 263 70% 50%;
+
+    --radius: 0.625rem;
+
+    /* Chart colors — purple spectrum */
+    --chart-1: 263 70% 50%;
+    --chart-2: 280 65% 60%;
+    --chart-3: 250 60% 65%;
+    --chart-4: 290 55% 55%;
+    --chart-5: 270 50% 70%;
+
+    /* Padvik-specific semantic colors */
+    --mastered: 142 76% 36%;
+    --learning: 38 92% 50%;
+    --not-started: 263 20% 85%;
+    --correct: 142 76% 36%;
+    --incorrect: 0 84% 60%;
+    --skipped: 263 20% 70%;
+  }
+
+  .dark {
+    --background: 263 30% 6%;
+    --foreground: 270 10% 93%;
+
+    --card: 263 30% 8%;
+    --card-foreground: 270 10% 93%;
+
+    --popover: 263 30% 8%;
+    --popover-foreground: 270 10% 93%;
+
+    --primary: 263 70% 60%;
+    --primary-foreground: 263 47% 6%;
+
+    --secondary: 263 25% 15%;
+    --secondary-foreground: 270 10% 90%;
+
+    --muted: 263 20% 15%;
+    --muted-foreground: 270 10% 60%;
+
+    --accent: 280 65% 50%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 60% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 80% 55%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 263 20% 18%;
+    --input: 263 20% 18%;
+    --ring: 263 70% 60%;
+
+    --chart-1: 263 70% 60%;
+    --chart-2: 280 65% 55%;
+    --chart-3: 250 60% 55%;
+    --chart-4: 290 55% 50%;
+    --chart-5: 270 50% 60%;
+
+    --mastered: 142 60% 45%;
+    --learning: 38 80% 55%;
+    --not-started: 263 20% 30%;
+    --correct: 142 60% 45%;
+    --incorrect: 0 62% 50%;
+    --skipped: 263 20% 40%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}

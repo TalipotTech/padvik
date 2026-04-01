@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pg_isready -h localhost -p 5432)",
+      "Bash(PGPASSWORD='Talipot@123' psql -U postgres -h localhost -p 5432 -c \"SELECT 1 AS connected;\")",
+      "Bash(PGPASSWORD='Talipot@123' psql -U postgres -h localhost -p 5432 <<'SQL':*)",
+      "Bash(PGPASSWORD='Talipot@123' psql -U postgres -h localhost -p 5432 -d padvik <<'SQL':*)",
+      "Bash(PGPASSWORD='Talipot@123' psql -U padvik -h localhost -p 5432 -d padvik -c \"SELECT current_user, current_database\\(\\);\")",
+      "Bash(PGPASSWORD='Talipot@123' psql -U padvik -h localhost -d padvik -c \"SELECT tablename FROM pg_tables WHERE schemaname = ''public'' ORDER BY tablename;\")",
+      "Bash(node -e \"const {PDFParse} = require\\(''''pdf-parse''''\\); const p = new PDFParse\\(\\); console.log\\(Object.getOwnPropertyNames\\(Object.getPrototypeOf\\(p\\)\\).join\\('''', ''''\\)\\)\")",
+      "Bash(mkdir -p test/data)",
+      "Bash(cp node_modules/pdf-parse/test/data/05-versions-space.pdf test/data/)"
+    ]
+  }
+}
