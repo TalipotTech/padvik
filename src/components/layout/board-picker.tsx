@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useBoardSelection } from "@/hooks/use-board-selection";
-import { getMockBoards, getMockStandards } from "@/lib/mock-data";
+import { useData } from "@/hooks/use-data";
+import { getBoards, getStandards } from "@/lib/data";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -22,13 +24,16 @@ interface BoardPickerProps {
 
 export function BoardPicker({ open, onOpenChange }: BoardPickerProps) {
   const { setSelection } = useBoardSelection();
-  const boards = getMockBoards();
+  const { data: boards, loading: boardsLoading } = useData(() => getBoards(), []);
 
   const [selectedBoardId, setSelectedBoardId] = useState<number | null>(null);
   const [selectedGrade, setSelectedGrade] = useState<number | null>(null);
 
-  const selectedBoard = boards.find((b) => b.id === selectedBoardId);
-  const standards = selectedBoardId ? getMockStandards(selectedBoardId) : [];
+  const selectedBoard = boards?.find((b) => b.id === selectedBoardId) ?? null;
+  const { data: standards } = useData(
+    () => selectedBoardId ? getStandards(selectedBoardId) : Promise.resolve([]),
+    [selectedBoardId],
+  );
 
   function handleBoardSelect(boardId: number) {
     setSelectedBoardId(boardId);
@@ -59,8 +64,15 @@ export function BoardPicker({ open, onOpenChange }: BoardPickerProps) {
         {/* Step 1: Board selection */}
         <div className="space-y-3">
           <p className="text-sm font-medium text-foreground">Board</p>
+          {boardsLoading ? (
+            <div className="grid grid-cols-2 gap-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 rounded-lg" />
+              ))}
+            </div>
+          ) : (
           <div className="grid grid-cols-2 gap-2">
-            {boards.map((board) => (
+            {(boards ?? []).map((board) => (
               <button
                 key={board.id}
                 onClick={() => handleBoardSelect(board.id)}
@@ -81,14 +93,15 @@ export function BoardPicker({ open, onOpenChange }: BoardPickerProps) {
               </button>
             ))}
           </div>
+          )}
         </div>
 
         {/* Step 2: Class selection */}
-        {standards.length > 0 && (
+        {(standards ?? []).length > 0 && (
           <div className="space-y-3">
             <p className="text-sm font-medium text-foreground">Class</p>
             <div className="flex flex-wrap gap-2">
-              {standards.map((std) => (
+              {(standards ?? []).map((std) => (
                 <Badge
                   key={std.id}
                   variant={selectedGrade === std.grade ? "default" : "outline"}

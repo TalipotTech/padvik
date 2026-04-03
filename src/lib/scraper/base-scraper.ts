@@ -2,6 +2,9 @@
  * Base scraper with retry logic, rate limiting, and structured error handling.
  * All board scrapers extend this class.
  */
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { scrapeJobs } from "@/db/schema/system";
 
 export interface ScrapeResult<T = unknown> {
   success: boolean;
@@ -169,6 +172,59 @@ export abstract class BaseScraper {
   protected logError(message: string, err?: unknown): void {
     const detail = err instanceof Error ? err.message : String(err ?? "");
     console.error(`[${this.name}] ERROR: ${message}${detail ? ` — ${detail}` : ""}`);
+  }
+
+  /**
+   * Update a scrape job record in the database.
+   */
+  protected async updateJob(
+    jobId: number,
+    updates: Partial<{
+      status: string;
+      itemsFound: number;
+      itemsProcessed: number;
+      errorLog: string;
+    }>
+  ): Promise<void> {
+    const values: Record<string, unknown> = {};
+    if (updates.status) values.status = updates.status;
+    if (updates.itemsFound !== undefined) values.itemsFound = updates.itemsFound;
+    if (updates.itemsProcessed !== undefined) values.itemsProcessed = updates.itemsProcessed;
+    if (updates.errorLog) values.errorLog = updates.errorLog;
+    if (updates.status === "running") values.startedAt = new Date();
+    if (updates.status === "completed" || updates.status === "failed") {
+      values.completedAt = new Date();
+    }
+
+    await db
+      .update(scrapeJobs)
+      .set(values)
+      .where(eq(scrapeJobs.id, jobId));
+  }
+
+  /**
+   * Update job metadata JSONB (merge with existing).
+   * Used to store scrape results, resume state, etc.
+   */
+  protected async updateJobMetadata(
+    jobId: number,
+    newMeta: Record<string, unknown>
+  ): Promise<void> {
+    try {
+      const [job] = await db
+        .select({ metadata: scrapeJobs.metadata })
+        .from(scrapeJobs)
+        .where(eq(scrapeJobs.id, jobId))
+        .limit(1);
+
+      const existing = (job?.metadata as Record<string, unknown>) ?? {};
+      await db
+        .update(scrapeJobs)
+        .set({ metadata: { ...existing, ...newMeta } })
+        .where(eq(scrapeJobs.id, jobId));
+    } catch (err) {
+      this.logError("Failed to update job metadata", err);
+    }
   }
 }
 

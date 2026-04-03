@@ -10,16 +10,16 @@ import { AI_MODELS } from "../provider";
 // ---------------------------------------------------------------------------
 export const topicSchema = z.object({
   title: z.string().min(1),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
   sortOrder: z.number().int().min(0),
 });
 
 export const chapterSchema = z.object({
   chapterNumber: z.number().int().min(1),
   title: z.string().min(1),
-  description: z.string().optional(),
-  estimatedHours: z.number().optional(),
-  weightagePct: z.number().optional(),
+  description: z.string().nullable().optional(),
+  estimatedHours: z.number().nullable().optional(),
+  weightagePct: z.number().nullable().optional(),
   topics: z.array(topicSchema),
 });
 
@@ -28,8 +28,8 @@ export const syllabusParseResultSchema = z.object({
   subjectCode: z.string().min(1),
   grade: z.number().int().min(1).max(12),
   stream: z.string().nullable().optional(),
-  academicYear: z.string().optional(),
-  totalMarks: z.number().optional(),
+  academicYear: z.string().nullable().optional(),
+  totalMarks: z.number().nullable().optional(),
   chapters: z.array(chapterSchema),
 });
 
@@ -38,9 +38,9 @@ export type SyllabusParseResult = z.infer<typeof syllabusParseResultSchema>;
 // ---------------------------------------------------------------------------
 // System prompt
 // ---------------------------------------------------------------------------
-export const SYSTEM_PROMPT = `You are an expert parser of Indian education board syllabi.
+export const SYSTEM_PROMPT = `You are an expert parser of Indian education board syllabi (CBSE, ICSE, Kerala SCERT, and all state boards).
 
-Your task: Given raw text extracted from a CBSE syllabus PDF, extract the structured hierarchy of chapters and topics.
+Your task: Given raw text extracted from a syllabus PDF of any Indian education board, extract the structured hierarchy of chapters and topics.
 
 RULES:
 1. Extract ONLY information that is explicitly present in the text.
@@ -51,6 +51,8 @@ RULES:
 6. Infer a subject code from the subject name (e.g., Mathematics → MATH, Physics → PHY, English → ENG).
 7. Sort orders should be sequential starting from 0 for topics.
 8. Do NOT hallucinate chapters or topics not in the source text.
+9. If the syllabus contains content in a regional language (Malayalam, Tamil, Hindi, etc.), transliterate chapter/topic titles to English while preserving the original meaning.
+10. Different boards may use different terminology (Unit vs Chapter, Module vs Topic) — normalize to "chapter" and "topic" in the output.
 
 OUTPUT FORMAT: Return ONLY valid JSON matching this exact structure (no markdown fences, no extra text):
 

@@ -15,22 +15,27 @@ const devUser: { name: string | null; email: string | null; image: string | null
 };
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  let user = devUser;
+  // Always try to get the real session first
+  const session = await auth();
 
-  if (!DEV_BYPASS) {
-    const session = await auth();
-    if (!session?.user) redirect("/login");
+  let user: { name: string | null; email: string | null; image: string | null; role: string };
+
+  if (session?.user) {
     user = {
       name: session.user.name ?? null,
       email: session.user.email ?? null,
       image: session.user.image ?? null,
       role: (session.user as { role?: string }).role ?? "student",
     };
+  } else if (DEV_BYPASS) {
+    // Fall back to dev user only in development when no session exists
+    user = devUser;
+  } else {
+    redirect("/login");
   }
 
   async function handleSignOut() {
     "use server";
-    if (DEV_BYPASS) return;
     await signOut({ redirectTo: "/login" });
   }
 

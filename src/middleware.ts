@@ -14,6 +14,7 @@ export default async function middleware(request: NextRequest) {
   if (DEV_BYPASS) {
     return NextResponse.next();
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (auth as any)(request);
 }
 

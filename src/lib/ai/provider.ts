@@ -146,6 +146,33 @@ export interface AICallResult {
   durationMs: number;
 }
 
+/** Error class with HTTP status for provider failures */
+export class AIProviderError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly provider: string,
+    public readonly isRetryable: boolean
+  ) {
+    super(message);
+    this.name = "AIProviderError";
+  }
+}
+
+/** Check if an error is an auth/quota failure (401/403) that needs provider switch */
+export function isAuthError(err: unknown): boolean {
+  if (err instanceof AIProviderError) return err.status === 401 || err.status === 403;
+  const status = (err as { status?: number }).status;
+  return status === 401 || status === 403;
+}
+
+/** Check if an error is a quota/rate limit error */
+export function isQuotaError(err: unknown): boolean {
+  if (err instanceof AIProviderError) return err.status === 429;
+  const status = (err as { status?: number }).status;
+  return status === 429;
+}
+
 export interface AILogContext {
   pipelineStage: string;
   entityType: string;

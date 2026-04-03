@@ -5,13 +5,21 @@ import { BookOpen, FileText, GraduationCap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useBoardSelection } from "@/hooks/use-board-selection";
-import { getMockSubjects, getAllMockTopics } from "@/lib/mock-data";
+import { useData } from "@/hooks/use-data";
+import { getSubjects } from "@/lib/data";
 
 export function LearnPage() {
   const { boardId, boardName, grade } = useBoardSelection();
-  const subjects = boardId && grade ? getMockSubjects(boardId, grade) : [];
-  const topics = getAllMockTopics();
+  const { data: subjects, loading: subjectsLoading } = useData(
+    () => boardId && grade ? getSubjects(boardId, grade) : Promise.resolve([]),
+    [boardId, grade],
+  );
+  // Derive flat topic list from subjects hierarchy
+  const topics = (subjects ?? []).flatMap((s) =>
+    s.chapters.flatMap((c) => c.topics),
+  );
 
   if (!boardId || !grade) {
     return (
@@ -40,6 +48,13 @@ export function LearnPage() {
       {/* Topics with content — quick access */}
       <div className="space-y-3">
         <h2 className="text-lg font-semibold">Available Topics</h2>
+        {subjectsLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 rounded-lg" />
+            ))}
+          </div>
+        ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {topics.slice(0, 12).map((topic) => (
             <Link key={topic.id} href={`/dashboard/syllabus/${topic.id}`}>
@@ -62,13 +77,14 @@ export function LearnPage() {
             </Link>
           ))}
         </div>
+        )}
       </div>
 
       {/* Subjects overview */}
       <div className="space-y-3">
         <h2 className="text-lg font-semibold">By Subject</h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          {subjects.map((subject) => (
+          {(subjects ?? []).map((subject) => (
             <Link
               key={subject.id}
               href={`/dashboard/syllabus?subjectId=${subject.id}`}

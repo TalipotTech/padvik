@@ -7,16 +7,32 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
-import { getMockTopic, getMockContentForTopic } from "@/lib/mock-data";
+import { useData } from "@/hooks/use-data";
+import { getTopicWithContent } from "@/lib/data";
 
 interface TopicDetailProps {
   topicId: number;
 }
 
 export function TopicDetail({ topicId }: TopicDetailProps) {
-  const topic = getMockTopic(topicId);
-  const contentItems = getMockContentForTopic(topicId);
+  const { data, loading, error: _error } = useData(
+    () => getTopicWithContent(topicId),
+    [topicId],
+  );
+  const topic = data?.topic ?? null;
+  const contentItems = data?.contentItems ?? [];
+
+  if (loading) {
+    return (
+      <div className="space-y-6 pt-2">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-96" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
 
   if (!topic) {
     return (

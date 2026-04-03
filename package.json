@@ -14,7 +14,10 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "tsx scripts/seed-boards.ts"
+    "db:seed": "tsx scripts/seed-boards.ts",
+    "db:seed:curriculum": "tsx scripts/seed-curriculum.ts",
+    "scrape": "tsx scripts/run-scraper.ts",
+    "workers": "tsx src/lib/queue/start-workers.ts"
   },
   "packageManager": "pnpm@9.15.0",
   "dependencies": {
@@ -42,9 +45,11 @@
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.4.27",
     "bcryptjs": "^3.0.3",
+    "bullmq": "^5.72.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "ioredis": "^5.10.1",
     "katex": "^0.16.44",
     "lucide-react": "^1.7.0",
     "next": "15",

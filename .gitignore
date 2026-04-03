@@ -11,6 +11,9 @@ out/
 build/
 dist/
 
+# scraped data (PDFs, extracted text)
+data/pdfs/
+
 # env files
 .env
 .env.local

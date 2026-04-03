@@ -2,9 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { scrapeJobs } from "@/db/schema/system";
-import { desc, eq } from "drizzle-orm";
-import { CbseScraper } from "@/lib/scraper/cbse-scraper";
+import { desc, eq, and, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
+
+/** Board code to source URL mapping */
+const BOARD_SOURCE_URLS: Record<string, string> = {
+  CBSE: "https://cbseacademic.nic.in/curriculum_2026.html",
+  ICSE: "https://www.cisce.org/regulations-syllabi",
+  KL_SCERT: "https://scert.kerala.gov.in/curriculum",
+};
+
+const SUPPORTED_BOARDS = Object.keys(BOARD_SOURCE_URLS);
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/scrape-jobs — List scrape jobs
@@ -28,13 +36,14 @@ export async function GET() {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/admin/scrape-jobs — Trigger a new scrape job
+// POST /api/admin/scrape-jobs — Trigger a new scrape job via queue
 // ---------------------------------------------------------------------------
 const createJobSchema = z.object({
   boardCode: z.string().min(1),
   jobType: z.enum(["syllabus", "question_paper", "textbook"]),
   grades: z.array(z.number().int().min(1).max(12)).optional(),
-  maxPdfs: z.number().int().min(1).max(100).optional(),
+  maxPdfs: z.number().int().min(1).max(500).optional(),
+  aiProvider: z.enum(["anthropic", "gemini", "mistral", "openai", "perplexity", "auto"]).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -67,75 +76,94 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { boardCode, jobType, grades, maxPdfs } = parsed.data;
+  const { boardCode, jobType, grades, maxPdfs, aiProvider } = parsed.data;
 
-  // Only CBSE scraper is implemented for now
-  if (boardCode !== "CBSE") {
+  // Validate board code
+  if (!SUPPORTED_BOARDS.includes(boardCode)) {
     return NextResponse.json(
       {
         success: false,
-        error: { code: "NOT_IMPLEMENTED", message: `Scraper for ${boardCode} not implemented yet` },
+        error: {
+          code: "NOT_IMPLEMENTED",
+          message: `Scraper for ${boardCode} not supported. Supported: ${SUPPORTED_BOARDS.join(", ")}`,
+        },
       },
       { status: 400 }
     );
   }
 
-  // Create the job record
+  // --- Duplicate prevention ---
+  // Check if there's already a queued or running job for the same board+jobType
+  const existingJobs = await db
+    .select({ id: scrapeJobs.id, status: scrapeJobs.status })
+    .from(scrapeJobs)
+    .where(
+      and(
+        eq(scrapeJobs.sourceUrl, BOARD_SOURCE_URLS[boardCode]),
+        eq(scrapeJobs.jobType, jobType),
+        inArray(scrapeJobs.status, ["queued", "running"])
+      )
+    )
+    .limit(1);
+
+  if (existingJobs.length > 0) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: "DUPLICATE_JOB",
+          message: `A ${jobType} scrape for ${boardCode} is already ${existingJobs[0].status} (Job #${existingJobs[0].id}). Wait for it to finish or cancel it first.`,
+        },
+      },
+      { status: 409 }
+    );
+  }
+
+  const sourceUrl = BOARD_SOURCE_URLS[boardCode];
+
+  // Create the job record with rich metadata
   const [job] = await db
     .insert(scrapeJobs)
     .values({
       jobType,
-      sourceUrl: "https://cbseacademic.nic.in/curriculum_2026.html",
-      boardId: null, // Will be resolved by scraper
+      sourceUrl,
+      boardId: null, // Resolved by scraper
       status: "queued",
+      metadata: {
+        boardCode,
+        aiProvider: aiProvider ?? "auto",
+        grades: grades ?? null,
+        maxPdfs: maxPdfs ?? null,
+        triggeredBy: session.user.email ?? session.user.id,
+        triggeredAt: new Date().toISOString(),
+      },
     })
     .returning();
 
-  // Run the scraper asynchronously (non-blocking)
-  runScrapeJob(job.id, { grades, maxPdfs }).catch((err) => {
-    console.error(`Scrape job ${job.id} failed:`, err);
+  // Enqueue to BullMQ (dynamic import so GET handler works without Redis)
+  const { addScrapeJob } = await import("@/lib/queue");
+  const queueJobId = await addScrapeJob({
+    jobId: job.id,
+    boardCode,
+    jobType,
+    grades,
+    maxPdfs,
+    aiProvider,
   });
 
-  return NextResponse.json({ success: true, data: job }, { status: 201 });
-}
+  // Store queueJobId in metadata for later reference
+  await db
+    .update(scrapeJobs)
+    .set({
+      metadata: {
+        ...(job.metadata as Record<string, unknown>),
+        queueJobId,
+      },
+    })
+    .where(eq(scrapeJobs.id, job.id));
 
-// ---------------------------------------------------------------------------
-// Background scraper runner
-// ---------------------------------------------------------------------------
-async function runScrapeJob(
-  jobId: number,
-  options: { grades?: number[]; maxPdfs?: number }
-) {
-  const scraper = new CbseScraper({ rateLimitMs: 3000 });
-
-  try {
-    await db
-      .update(scrapeJobs)
-      .set({ status: "running", startedAt: new Date() })
-      .where(eq(scrapeJobs.id, jobId));
-
-    const processed = await scraper.scrape({
-      jobId,
-      grades: options.grades,
-      maxPdfs: options.maxPdfs,
-    });
-
-    await db
-      .update(scrapeJobs)
-      .set({
-        status: "completed",
-        completedAt: new Date(),
-        itemsProcessed: processed,
-      })
-      .where(eq(scrapeJobs.id, jobId));
-  } catch (err) {
-    await db
-      .update(scrapeJobs)
-      .set({
-        status: "failed",
-        completedAt: new Date(),
-        errorLog: err instanceof Error ? err.message : String(err),
-      })
-      .where(eq(scrapeJobs.id, jobId));
-  }
+  return NextResponse.json(
+    { success: true, data: { ...job, queueJobId, metadata: { ...(job.metadata as Record<string, unknown>), queueJobId } } },
+    { status: 201 }
+  );
 }

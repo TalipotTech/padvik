@@ -14,6 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
+  Users,
+  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -34,15 +36,30 @@ import {
 } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
-const navItems = [
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  roles?: string[]; // if undefined, shown to all roles
+}
+
+const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
-  { href: "/dashboard/syllabus", label: "Syllabus", icon: BookOpen },
-  { href: "/dashboard/learn", label: "Learn", icon: GraduationCap },
-  { href: "/dashboard/exams", label: "Exams", icon: FileText },
-  { href: "/dashboard/chat", label: "AI Chat", icon: MessageSquare },
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/dashboard/syllabus", label: "Syllabus", icon: BookOpen, roles: ["student", "teacher"] },
+  { href: "/dashboard/learn", label: "Learn", icon: GraduationCap, roles: ["student"] },
+  { href: "/dashboard/exams", label: "Exams", icon: FileText, roles: ["student", "teacher"] },
+  { href: "/dashboard/chat", label: "AI Chat", icon: MessageSquare, roles: ["student", "teacher"] },
+  { href: "/dashboard/classroom", label: "Classrooms", icon: Users, roles: ["teacher"] },
+  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, roles: ["student", "teacher", "parent"] },
+  { href: "/scrape-jobs", label: "Scrape Pipeline", icon: Upload, roles: ["admin"] },
+  { href: "/curriculum", label: "Curriculum", icon: BookOpen, roles: ["admin"] },
+  { href: "/syllabus-viewer", label: "Syllabus Viewer", icon: FileText, roles: ["admin"] },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
+
+function getNavForRole(role: string) {
+  return navItems.filter((item) => !item.roles || item.roles.includes(role));
+}
 
 interface SidebarProps {
   user: {
@@ -59,7 +76,7 @@ function NavLink({
   collapsed,
   pathname,
 }: {
-  item: (typeof navItems)[0];
+  item: NavItem;
   collapsed: boolean;
   pathname: string;
 }) {
@@ -72,7 +89,7 @@ function NavLink({
     <Link
       href={item.href}
       className={cn(
-        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-11",
+        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-10",
         isActive
           ? "bg-primary/10 text-primary"
           : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -101,7 +118,14 @@ function SidebarContent({
   user,
   signOutAction,
   pathname,
-}: SidebarProps & { collapsed: boolean; pathname: string }) {
+  showCollapseButton,
+  onToggleCollapse,
+}: SidebarProps & {
+  collapsed: boolean;
+  pathname: string;
+  showCollapseButton?: boolean;
+  onToggleCollapse?: () => void;
+}) {
   const initials = user.name
     ? user.name
         .split(" ")
@@ -111,17 +135,20 @@ function SidebarContent({
         .slice(0, 2)
     : "U";
 
+  const role = user.role || "student";
+  const filteredNav = getNavForRole(role);
+
   return (
     <div className="flex h-full flex-col">
       {/* Logo */}
       <div
         className={cn(
-          "flex h-16 items-center border-b px-4",
+          "flex h-14 items-center border-b px-4 shrink-0",
           collapsed && "justify-center px-2",
         )}
       >
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
             <span className="text-sm font-bold text-primary-foreground">P</span>
           </div>
           {!collapsed && (
@@ -131,9 +158,9 @@ function SidebarContent({
       </div>
 
       {/* Nav */}
-      <ScrollArea className="flex-1 px-3 py-4">
+      <ScrollArea className="flex-1 px-3 py-3">
         <nav className="flex flex-col gap-1">
-          {navItems.map((item) => (
+          {filteredNav.map((item) => (
             <NavLink
               key={item.href}
               item={item}
@@ -144,30 +171,30 @@ function SidebarContent({
         </nav>
       </ScrollArea>
 
-      {/* User */}
-      <div className="border-t p-3">
+      {/* User + collapse button */}
+      <div className="border-t p-3 shrink-0">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               className={cn(
-                "w-full justify-start gap-3 px-2 min-h-11",
+                "w-full justify-start gap-3 px-2 min-h-10",
                 collapsed && "justify-center",
               )}
             >
-              <Avatar className="h-8 w-8">
+              <Avatar className="h-7 w-7 shrink-0">
                 <AvatarImage src={user.image || undefined} alt={user.name || ""} />
                 <AvatarFallback className="bg-primary/10 text-primary text-xs">
                   {initials}
                 </AvatarFallback>
               </Avatar>
               {!collapsed && (
-                <div className="flex flex-col items-start text-left">
+                <div className="flex flex-col items-start text-left min-w-0">
                   <span className="text-sm font-medium truncate max-w-[130px]">
                     {user.name || "User"}
                   </span>
-                  <span className="text-xs text-muted-foreground truncate max-w-[130px]">
-                    {user.role || "student"}
+                  <span className="text-xs text-muted-foreground capitalize truncate max-w-[130px]">
+                    {role}
                   </span>
                 </div>
               )}
@@ -197,6 +224,28 @@ function SidebarContent({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Collapse toggle — inside the flex column so it doesn't overflow */}
+      {showCollapseButton && onToggleCollapse && (
+        <div className="border-t px-2 py-2 shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onToggleCollapse}
+            className={cn("w-full h-8", collapsed ? "justify-center px-0" : "justify-start")}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <>
+                <ChevronLeft className="h-4 w-4 mr-2" />
+                <span className="text-xs text-muted-foreground">Collapse</span>
+              </>
+            )}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -219,22 +268,9 @@ export function Sidebar({ user, signOutAction }: SidebarProps) {
           user={user}
           signOutAction={signOutAction}
           pathname={pathname}
+          showCollapseButton
+          onToggleCollapse={() => setCollapsed(!collapsed)}
         />
-        <div className="border-t p-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setCollapsed(!collapsed)}
-            className="mx-auto flex h-8 w-8"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {collapsed ? (
-              <ChevronRight className="h-4 w-4" />
-            ) : (
-              <ChevronLeft className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
       </aside>
     </TooltipProvider>
   );

@@ -10,7 +10,7 @@ import {
   Layers,
   Search,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -22,11 +22,8 @@ import {
 } from "@/components/ui/accordion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useBoardSelection } from "@/hooks/use-board-selection";
-import {
-  getMockSubjects,
-  getMockSubjectWithChapters,
-} from "@/lib/mock-data";
-import type { Subject, ChapterWithTopics } from "@/types/curriculum";
+import { useData } from "@/hooks/use-data";
+import { getSubjects } from "@/lib/data";
 
 export function SyllabusExplorer() {
   const { boardId, boardName, grade } = useBoardSelection();
@@ -38,9 +35,12 @@ export function SyllabusExplorer() {
   );
   const [searchQuery, setSearchQuery] = useState("");
 
-  const subjects = boardId && grade ? getMockSubjects(boardId, grade) : [];
+  const { data: subjects, loading: subjectsLoading } = useData(
+    () => boardId && grade ? getSubjects(boardId, grade) : Promise.resolve([]),
+    [boardId, grade],
+  );
   const subjectData = selectedSubjectId
-    ? getMockSubjectWithChapters(selectedSubjectId)
+    ? (subjects ?? []).find((s) => s.id === selectedSubjectId) ?? null
     : null;
 
   // Filter chapters/topics by search
@@ -92,7 +92,10 @@ export function SyllabusExplorer() {
         <div className="w-full lg:w-64 shrink-0 space-y-2">
           <p className="text-sm font-medium text-muted-foreground px-1">Subjects</p>
           <div className="flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0">
-            {subjects.map((sub) => (
+            {subjectsLoading && Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-11 w-32 lg:w-full rounded-lg" />
+            ))}
+            {(subjects ?? []).map((sub) => (
               <button
                 key={sub.id}
                 onClick={() => {
