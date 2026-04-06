@@ -9,6 +9,7 @@ import {
   timestamp,
   jsonb,
   index,
+  unique,
 } from "drizzle-orm/pg-core";
 import { topics, boards, standards, subjects } from "./curriculum";
 import { users } from "./auth";
@@ -78,6 +79,11 @@ export const questions = pgTable(
     verifiedBy: bigint("verified_by", { mode: "number" }).references(() => users.id, {
       onDelete: "set null",
     }),
+    createdBy: bigint("created_by", { mode: "number" }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    sectionLabel: varchar("section_label", { length: 20 }),
+    questionNumber: varchar("question_number", { length: 20 }),
     usageCount: bigint("usage_count", { mode: "number" }).notNull().default(0),
     avgAccuracy: decimal("avg_accuracy", { precision: 5, scale: 2 }),
     tags: text("tags").array().default([]),
@@ -89,5 +95,52 @@ export const questions = pgTable(
     index("idx_questions_topic_id").on(table.topicId),
     index("idx_questions_source_type").on(table.sourceType),
     index("idx_questions_difficulty").on(table.difficulty),
+    index("idx_questions_created_by").on(table.createdBy),
   ]
+);
+
+// ---------------------------------------------------------------------------
+// Question sharing — selective sharing between users
+// ---------------------------------------------------------------------------
+export const questionShares = pgTable(
+  "question_shares",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    questionId: bigint("question_id", { mode: "number" })
+      .notNull()
+      .references(() => questions.id, { onDelete: "cascade" }),
+    sharedBy: bigint("shared_by", { mode: "number" })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sharedWith: bigint("shared_with", { mode: "number" })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    permission: varchar("permission", { length: 10 }).notNull().default("read"),
+    sharedAt: timestamp("shared_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    metadata: jsonb("metadata").default({}),
+  },
+  (table) => [
+    unique("uq_question_shares").on(table.questionId, table.sharedBy, table.sharedWith),
+    index("idx_question_shares_shared_with").on(table.sharedWith),
+    index("idx_question_shares_question_id").on(table.questionId),
+  ]
+);
+
+export const questionShareInvites = pgTable(
+  "question_share_invites",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    inviteCode: varchar("invite_code", { length: 64 }).notNull().unique(),
+    createdBy: bigint("created_by", { mode: "number" })
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    questionIds: bigint("question_ids", { mode: "number" }).array().notNull(),
+    permission: varchar("permission", { length: 10 }).notNull().default("read"),
+    maxUses: smallint("max_uses"),
+    usedCount: smallint("used_count").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_question_share_invites_code").on(table.inviteCode)]
 );

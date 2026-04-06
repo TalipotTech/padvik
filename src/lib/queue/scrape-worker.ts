@@ -5,7 +5,7 @@
  */
 import { Worker, Job } from "bullmq";
 import { eq } from "drizzle-orm";
-import { getRedisConnection } from "../redis";
+import { createRedisConnection } from "../redis";
 import { db } from "@/db";
 import { scrapeJobs } from "@/db/schema/system";
 import { contentPipelineLogs } from "@/db/schema/system";
@@ -14,6 +14,7 @@ import type { BaseScraper } from "../scraper/base-scraper";
 import { CbseScraper } from "../scraper/cbse-scraper";
 import { IcseScraper } from "../scraper/icse-scraper";
 import { KeralaScraper } from "../scraper/kerala-scraper";
+import { CbseQuestionScraper } from "../scraper/cbse-question-scraper";
 
 /** Progress object stored on the BullMQ job, polled by frontend */
 export interface ScrapeProgress {
@@ -36,7 +37,16 @@ export interface ScrapeProgress {
 
 const SCRAPER_CONFIG = { rateLimitMs: 3000 };
 
-function getScraperForBoard(boardCode: string): BaseScraper {
+function getScraperForJob(boardCode: string, jobType: string): BaseScraper {
+  if (jobType === "question_paper") {
+    switch (boardCode.toUpperCase()) {
+      case "CBSE":
+        return new CbseQuestionScraper(SCRAPER_CONFIG);
+      default:
+        throw new Error(`No question paper scraper for board: ${boardCode}`);
+    }
+  }
+
   switch (boardCode.toUpperCase()) {
     case "CBSE":
       return new CbseScraper(SCRAPER_CONFIG);
@@ -57,11 +67,11 @@ export function startScrapeWorker(): Worker<ScrapeJobData> {
   worker = new Worker<ScrapeJobData>(
     "scrape",
     async (job: Job<ScrapeJobData>) => {
-      const { jobId, boardCode, grades, maxPdfs, aiProvider } = job.data;
+      const { jobId, boardCode, jobType, grades, maxPdfs, aiProvider, retrySkipped } = job.data;
       const startTime = Date.now();
 
       console.log(
-        `[ScrapeWorker] Processing job ${jobId} for board ${boardCode} (AI: ${aiProvider ?? "auto"})`
+        `[ScrapeWorker] Processing job ${jobId} for board ${boardCode} type ${jobType} (AI: ${aiProvider ?? "auto"})`
       );
 
       // Initialize progress on the BullMQ job
@@ -108,13 +118,14 @@ export function startScrapeWorker(): Worker<ScrapeJobData> {
           // Ignore — fresh start
         }
 
-        const scraper = getScraperForBoard(boardCode);
+        const scraper = getScraperForJob(boardCode, jobType);
         const processed = await scraper.scrape({
           jobId,
           grades,
           maxPdfs,
           aiProvider: aiProvider ?? "auto",
           processedUrls,
+          retrySkipped,
         });
 
         // Final progress update
@@ -181,7 +192,7 @@ export function startScrapeWorker(): Worker<ScrapeJobData> {
       }
     },
     {
-      connection: getRedisConnection(),
+      connection: createRedisConnection(),
       concurrency: 2,
     }
   );

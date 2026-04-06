@@ -4,7 +4,7 @@
  */
 import { Worker, Job } from "bullmq";
 import { eq } from "drizzle-orm";
-import { getRedisConnection } from "../redis";
+import { createRedisConnection } from "../redis";
 import { db } from "@/db";
 import { subjects, chapters, topics } from "@/db/schema/curriculum";
 import { contentPipelineLogs } from "@/db/schema/system";
@@ -213,7 +213,7 @@ export function startContentWorker(): Worker<ContentJobData> {
       }
     },
     {
-      connection: getRedisConnection(),
+      connection: createRedisConnection(),
       concurrency: 5,
     }
   );

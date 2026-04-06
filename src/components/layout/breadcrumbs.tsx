@@ -14,6 +14,13 @@ const routeLabels: Record<string, string> = {
   analytics: "Analytics",
   settings: "Settings",
   classroom: "Classroom",
+  "question-bank": "Question Bank",
+  "question-papers": "Question Papers",
+  "question-viewer": "Question Viewer",
+  "question-paper-verifier": "Paper Verifier",
+  "scrape-jobs": "Scrape Jobs",
+  curriculum: "Curriculum Explorer",
+  "syllabus-viewer": "Syllabus Viewer",
 };
 
 export function Breadcrumbs() {

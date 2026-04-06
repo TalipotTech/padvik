@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrapeProgress } from "./_components/scrape-progress";
 import { QueueDashboard } from "./_components/queue-dashboard";
 import { AIUsagePanel } from "./_components/ai-usage-panel";
+import { ParseErrorsPanel } from "./_components/parse-errors-panel";
 import { ScrapedContentPanel } from "./_components/scraped-content-panel";
 import Link from "next/link";
 import {
@@ -76,11 +77,11 @@ const BOARDS = [
 ] as const;
 
 const AI_PROVIDERS = [
-  { value: "auto", label: "Auto (Rotate)", description: "Cost-optimized rotation across all providers" },
-  { value: "anthropic", label: "Anthropic Claude", description: "Claude Sonnet 4 — highest quality" },
-  { value: "gemini", label: "Google Gemini", description: "Gemini 2.0 Flash — cheapest option" },
-  { value: "mistral", label: "Mistral AI", description: "Mistral Large — good for multilingual" },
-  { value: "openai", label: "OpenAI GPT-4o", description: "GPT-4o — strong general purpose" },
+  { value: "auto", label: "Auto (Rotate)", description: "Cost-optimized: Gemini 2.5 Flash → Pro → Mistral → Claude" },
+  { value: "gemini", label: "Google Gemini", description: "Gemini 2.5 Pro — best for Indian languages (Hindi, Tamil, etc.)" },
+  { value: "anthropic", label: "Anthropic Claude", description: "Claude Sonnet 4 — highest quality English extraction" },
+  { value: "mistral", label: "Mistral AI", description: "Mistral Large — strong multilingual" },
+  { value: "openai", label: "OpenAI GPT-4o", description: "GPT-4o — reliable general purpose" },
   { value: "perplexity", label: "Perplexity Sonar", description: "Sonar — web-grounded search" },
 ] as const;
 
@@ -109,7 +110,18 @@ export default function ScrapeJobsPage() {
   const [maxPdfs, setMaxPdfs] = useState("3");
   const [selectedGrade, setSelectedGrade] = useState("all");
   const [selectedBoard, setSelectedBoard] = useState("CBSE");
+  const [selectedJobType, setSelectedJobType] = useState("syllabus");
+  const [retrySkipped, setRetrySkipped] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState("auto");
+  const [jobTypeFilter, setJobTypeFilter] = useState("all");
+
+  // Auto-sync job type with filter
+  const handleJobTypeFilterChange = (filter: string) => {
+    setJobTypeFilter(filter);
+    if (filter !== "all") {
+      setSelectedJobType(filter);
+    }
+  };
   const [error, setError] = useState<string | null>(null);
   const [activeJobs, setActiveJobs] = useState<Record<number, string>>({});
   const [expandedJob, setExpandedJob] = useState<number | null>(null);
@@ -131,6 +143,11 @@ export default function ScrapeJobsPage() {
   useEffect(() => {
     fetchJobs();
   }, [fetchJobs]);
+
+  // Filter jobs by selected type
+  const filteredJobs = jobTypeFilter === "all"
+    ? jobs
+    : jobs.filter((j) => j.jobType === jobTypeFilter);
 
   useEffect(() => {
     const hasActive = jobs.some(
@@ -162,9 +179,10 @@ export default function ScrapeJobsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           boardCode: selectedBoard,
-          jobType: "syllabus",
+          jobType: selectedJobType,
           grades,
           maxPdfs: parseInt(maxPdfs, 10) || 150,
+          retrySkipped: retrySkipped || undefined,
           aiProvider: selectedProvider,
         }),
       });
@@ -274,8 +292,30 @@ export default function ScrapeJobsPage() {
       <div>
         <h1 className="text-2xl font-bold">Scrape Pipeline</h1>
         <p className="text-muted-foreground">
-          Scrape syllabi from Indian education board websites, parse with AI, and store structured curriculum data.
+          Scrape syllabi, question papers, and textbooks from Indian education board websites.
         </p>
+      </div>
+
+      {/* Job type filter */}
+      <div className="flex items-center gap-1 rounded-lg bg-muted p-1 w-fit">
+        {[
+          { value: "all", label: "All Types" },
+          { value: "syllabus", label: "Syllabus" },
+          { value: "question_paper", label: "Questions" },
+          { value: "textbook", label: "Textbooks" },
+        ].map((t) => (
+          <button
+            key={t.value}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              jobTypeFilter === t.value
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => handleJobTypeFilterChange(t.value)}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       <Tabs defaultValue="jobs" className="space-y-6">
@@ -290,6 +330,7 @@ export default function ScrapeJobsPage() {
           </TabsTrigger>
           <TabsTrigger value="queues">Queue Status</TabsTrigger>
           <TabsTrigger value="ai-usage">AI Usage</TabsTrigger>
+          <TabsTrigger value="parse-errors">Parse Errors</TabsTrigger>
           <TabsTrigger value="content">Scraped Content</TabsTrigger>
         </TabsList>
 
@@ -317,6 +358,20 @@ export default function ScrapeJobsPage() {
                           {b.label}
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="jobType">Job Type</Label>
+                  <Select value={selectedJobType} onValueChange={setSelectedJobType}>
+                    <SelectTrigger id="jobType" className="w-[180px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="syllabus">Syllabus</SelectItem>
+                      <SelectItem value="question_paper">Question Papers</SelectItem>
+                      <SelectItem value="textbook">Textbook</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -368,6 +423,16 @@ export default function ScrapeJobsPage() {
                     </SelectContent>
                   </Select>
                 </div>
+
+                <label className="flex items-center gap-2 cursor-pointer self-end pb-2">
+                  <input
+                    type="checkbox"
+                    checked={retrySkipped}
+                    onChange={(e) => setRetrySkipped(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300"
+                  />
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">Retry skipped only</span>
+                </label>
 
                 <Button onClick={triggerScrape} disabled={triggering}>
                   {triggering ? (
@@ -471,7 +536,9 @@ export default function ScrapeJobsPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-lg">Job History</CardTitle>
-                <CardDescription>{jobs.length} jobs total</CardDescription>
+                <CardDescription>
+                  {filteredJobs.length} jobs{jobTypeFilter !== "all" ? ` (${jobTypeFilter.replace("_", " ")})` : ""} — {jobs.length} total
+                </CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={fetchJobs}>
                 Refresh
@@ -483,14 +550,14 @@ export default function ScrapeJobsPage() {
                   <Loader2 className="size-4 animate-spin" />
                   Loading jobs...
                 </div>
-              ) : jobs.length === 0 ? (
+              ) : filteredJobs.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground">
                   <Globe className="mx-auto mb-2 size-8 opacity-30" />
-                  <p>No scrape jobs yet. Trigger one above.</p>
+                  <p>{jobTypeFilter === "all" ? "No scrape jobs yet. Trigger one above." : `No ${jobTypeFilter.replace("_", " ")} jobs found.`}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {jobs.map((job) => (
+                  {filteredJobs.map((job) => (
                     <JobCard
                       key={job.id}
                       job={job}
@@ -512,15 +579,20 @@ export default function ScrapeJobsPage() {
 
         {/* ============== TAB 2: Queue Status ============== */}
         <TabsContent value="queues">
-          <QueueDashboard />
+          <QueueDashboard jobTypeFilter={jobTypeFilter} />
         </TabsContent>
 
         {/* ============== TAB 3: AI Usage ============== */}
         <TabsContent value="ai-usage">
-          <AIUsagePanel />
+          <AIUsagePanel jobTypeFilter={jobTypeFilter} />
         </TabsContent>
 
-        {/* ============== TAB 4: Scraped Content ============== */}
+        {/* ============== TAB 4: Parse Errors ============== */}
+        <TabsContent value="parse-errors">
+          <ParseErrorsPanel jobTypeFilter={jobTypeFilter} />
+        </TabsContent>
+
+        {/* ============== TAB 5: Scraped Content ============== */}
         <TabsContent value="content" className="space-y-4">
           <div className="flex justify-end">
             <Link href="/curriculum">
@@ -530,7 +602,7 @@ export default function ScrapeJobsPage() {
               </Button>
             </Link>
           </div>
-          <ScrapedContentPanel />
+          <ScrapedContentPanel jobTypeFilter={jobTypeFilter} />
         </TabsContent>
       </Tabs>
     </div>

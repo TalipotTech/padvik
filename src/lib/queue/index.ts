@@ -25,6 +25,8 @@ export interface ScrapeJobData {
   grades?: number[];
   maxPdfs?: number;
   aiProvider?: AIProviderChoice;
+  /** When true, only re-process PDFs that failed or were skipped in a previous run */
+  retrySkipped?: boolean;
 }
 
 export interface ContentJobData {

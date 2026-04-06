@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   BookOpen,
   FileText,
-  GraduationCap,
   MessageSquare,
   Sparkles,
   Users,
@@ -32,24 +31,24 @@ interface DashboardHomeProps {
 
 const studentActions = [
   { href: "/dashboard/syllabus", label: "Browse Syllabus", icon: BookOpen, color: "text-primary" },
-  { href: "/dashboard/learn", label: "Continue Learning", icon: GraduationCap, color: "text-emerald-600" },
+  { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, color: "text-violet-600" },
   { href: "/dashboard/exams", label: "Take an Exam", icon: FileText, color: "text-orange-600" },
   { href: "/dashboard/chat", label: "Ask AI", icon: MessageSquare, color: "text-blue-600" },
 ];
 
 const teacherActions = [
   { href: "/dashboard/classroom", label: "My Classrooms", icon: Users, color: "text-primary" },
-  { href: "/dashboard/exams", label: "Create Exam", icon: ClipboardList, color: "text-orange-600" },
-  { href: "/dashboard/syllabus", label: "Browse Syllabus", icon: BookOpen, color: "text-emerald-600" },
+  { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, color: "text-violet-600" },
+  { href: "/dashboard/exams", label: "Create Exam", icon: FileText, color: "text-orange-600" },
   { href: "/dashboard/analytics", label: "Class Analytics", icon: BarChart3, color: "text-blue-600" },
 ];
 
 const adminActions = [
   { href: "/scrape-jobs", label: "Scrape Pipeline", icon: Upload, color: "text-primary" },
   { href: "/curriculum", label: "Curriculum Explorer", icon: Layers, color: "text-violet-600" },
-  { href: "/syllabus-viewer", label: "Syllabus Viewer", icon: FileText, color: "text-emerald-600" },
+  { href: "/question-papers", label: "Question Papers", icon: ClipboardList, color: "text-orange-600" },
   { href: "/dashboard/syllabus", label: "Browse Syllabus", icon: BookOpen, color: "text-blue-600" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, color: "text-orange-600" },
+  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, color: "text-emerald-600" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, color: "text-muted-foreground" },
 ];
 

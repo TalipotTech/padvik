@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { contentPipelineLogs } from "@/db/schema/system";
-import { sql, desc, gte } from "drizzle-orm";
+import { contentPipelineLogs, scrapeJobs } from "@/db/schema/system";
+import { sql, desc, gte, eq, and } from "drizzle-orm";
 
 /**
  * GET /api/admin/ai-usage — AI usage stats from contentPipelineLogs
- * Optional query: ?since=2026-04-01 to filter by date
+ * Optional query: ?since=2026-04-01&jobType=syllabus|question_paper|textbook
  */
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -18,9 +18,28 @@ export async function GET(request: NextRequest) {
   }
 
   const sinceParam = request.nextUrl.searchParams.get("since");
-  const sinceDate = sinceParam ? new Date(sinceParam) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // Default: last 30 days
+  const jobTypeParam = request.nextUrl.searchParams.get("jobType");
+  const sinceDate = sinceParam ? new Date(sinceParam) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+  // Build where conditions
+  const conditions = [gte(contentPipelineLogs.createdAt, sinceDate)];
+
+  // If filtering by job type, join with scrapeJobs
+  // Pipeline logs with entityType='scrape_job' have entityId = scrapeJobs.id
+  const useJobTypeFilter = jobTypeParam && jobTypeParam !== "all";
 
   try {
+    // For job type filtering, we use a subquery to get relevant entity IDs
+    const jobIdSubquery = useJobTypeFilter
+      ? sql`${contentPipelineLogs.entityId} IN (SELECT id FROM scrape_jobs WHERE job_type = ${jobTypeParam})`
+      : undefined;
+
+    if (jobIdSubquery) {
+      conditions.push(jobIdSubquery);
+    }
+
+    const whereClause = and(...conditions);
+
     // Total aggregated stats
     const [totals] = await db
       .select({
@@ -29,7 +48,7 @@ export async function GET(request: NextRequest) {
         totalProcessingMs: sql<number>`coalesce(sum(${contentPipelineLogs.processingTimeMs}), 0)::int`,
       })
       .from(contentPipelineLogs)
-      .where(gte(contentPipelineLogs.createdAt, sinceDate));
+      .where(whereClause);
 
     // Per-model breakdown
     const byModel = await db
@@ -41,7 +60,7 @@ export async function GET(request: NextRequest) {
         totalProcessingMs: sql<number>`coalesce(sum(${contentPipelineLogs.processingTimeMs}), 0)::int`,
       })
       .from(contentPipelineLogs)
-      .where(gte(contentPipelineLogs.createdAt, sinceDate))
+      .where(whereClause)
       .groupBy(contentPipelineLogs.aiModelUsed)
       .orderBy(sql`count(*) desc`);
 
@@ -55,7 +74,7 @@ export async function GET(request: NextRequest) {
         failureCount: sql<number>`count(*) filter (where ${contentPipelineLogs.status} = 'failed')::int`,
       })
       .from(contentPipelineLogs)
-      .where(gte(contentPipelineLogs.createdAt, sinceDate))
+      .where(whereClause)
       .groupBy(contentPipelineLogs.pipelineStage)
       .orderBy(sql`count(*) desc`);
 
@@ -75,7 +94,7 @@ export async function GET(request: NextRequest) {
         createdAt: contentPipelineLogs.createdAt,
       })
       .from(contentPipelineLogs)
-      .where(gte(contentPipelineLogs.createdAt, sinceDate))
+      .where(whereClause)
       .orderBy(desc(contentPipelineLogs.createdAt))
       .limit(20);
 

@@ -5,7 +5,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam, ContentBlockParam } from "@anthropic-ai/sdk/resources/messages";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
 import { Mistral } from "@mistralai/mistralai";
 import OpenAI from "openai";
 import { db } from "@/db";
@@ -19,9 +19,10 @@ export const AI_MODELS = {
   PRIMARY: "claude-sonnet-4-20250514",
   BULK: "claude-haiku-4-5-20251001",
 
-  // Google Gemini — alternative complex tasks, multimodal
-  GEMINI_PRO: "gemini-2.0-flash",
-  GEMINI_FLASH: "gemini-2.0-flash-lite",
+  // Google Gemini — multimodal, strong multilingual (Hindi, Tamil, Malayalam, etc.)
+  GEMINI_PRO: "gemini-2.5-pro",
+  GEMINI_FLASH: "gemini-2.5-flash",
+  GEMINI_FLASH_LITE: "gemini-2.5-flash-lite",
 
   // Mistral — alternative complex tasks, multilingual
   MISTRAL_LARGE: "mistral-large-latest",
@@ -54,8 +55,9 @@ const COST_PER_1M: Record<string, { input: number; output: number }> = {
   "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
   "claude-haiku-4-5-20251001": { input: 0.8, output: 4.0 },
   // Google Gemini
-  "gemini-2.0-flash": { input: 0.1, output: 0.4 },
-  "gemini-2.0-flash-lite": { input: 0.075, output: 0.3 },
+  "gemini-2.5-pro": { input: 1.25, output: 10.0 },
+  "gemini-2.5-flash": { input: 0.3, output: 2.5 },
+  "gemini-2.5-flash-lite": { input: 0.1, output: 0.4 },
   // Mistral
   "mistral-large-latest": { input: 2.0, output: 6.0 },
   "mistral-small-latest": { input: 0.1, output: 0.3 },
@@ -74,7 +76,7 @@ const RETRY_BASE_DELAY_MS = 2000;
 // Client singletons
 // ---------------------------------------------------------------------------
 let _anthropic: Anthropic | null = null;
-let _gemini: GoogleGenerativeAI | null = null;
+let _gemini: GoogleGenAI | null = null;
 let _mistral: Mistral | null = null;
 let _perplexity: OpenAI | null = null;
 let _openai: OpenAI | null = null;
@@ -88,11 +90,11 @@ function getAnthropic(): Anthropic {
   return _anthropic;
 }
 
-function getGemini(): GoogleGenerativeAI {
+function getGemini(): GoogleGenAI {
   if (!_gemini) {
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) throw new Error("GOOGLE_GENERATIVE_AI_API_KEY is not set");
-    _gemini = new GoogleGenerativeAI(apiKey);
+    _gemini = new GoogleGenAI({ apiKey });
   }
   return _gemini;
 }
@@ -135,6 +137,8 @@ export interface AICallOptions {
   systemPrompt?: string;
   temperature?: number;
   maxTokens?: number;
+  /** Force JSON output (used by Gemini responseMimeType) */
+  jsonOutput?: boolean;
 }
 
 export interface AICallResult {
@@ -163,14 +167,28 @@ export class AIProviderError extends Error {
 export function isAuthError(err: unknown): boolean {
   if (err instanceof AIProviderError) return err.status === 401 || err.status === 403;
   const status = (err as { status?: number }).status;
-  return status === 401 || status === 403;
+  if (status === 401 || status === 403) return true;
+  // Gemini SDK throws errors with message containing auth/billing keywords
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return msg.includes("api key") || msg.includes("authentication") || msg.includes("permission denied");
 }
 
-/** Check if an error is a quota/rate limit error */
+/** Check if an error is a quota/rate limit/billing error */
 export function isQuotaError(err: unknown): boolean {
   if (err instanceof AIProviderError) return err.status === 429;
   const status = (err as { status?: number }).status;
-  return status === 429;
+  if (status === 429) return true;
+  // Gemini SDK billing/quota errors
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return (
+    msg.includes("quota") ||
+    msg.includes("rate limit") ||
+    msg.includes("resource exhausted") ||
+    msg.includes("billing") ||
+    msg.includes("exceeded") ||
+    msg.includes("resource_exhausted") ||
+    msg.includes("429")
+  );
 }
 
 export interface AILogContext {
@@ -243,31 +261,36 @@ async function callGemini(
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const geminiModel = client.getGenerativeModel({
+      // Build contents array from messages
+      const contents = messages.map((m) => ({
+        role: m.role === "assistant" ? ("model" as const) : ("user" as const),
+        parts: [{ text: typeof m.content === "string" ? m.content : JSON.stringify(m.content) }],
+      }));
+
+      // Enable thinking for Pro models (they require it for quality output)
+      const isProModel = model.includes("-pro");
+
+      const requestedMaxTokens = options.maxTokens ?? 8192;
+      const response = await client.models.generateContent({
         model,
-        ...(options.systemPrompt
-          ? { systemInstruction: options.systemPrompt }
-          : {}),
-        generationConfig: {
+        contents,
+        config: {
+          systemInstruction: options.systemPrompt ?? undefined,
           temperature: options.temperature ?? 0.3,
-          maxOutputTokens: options.maxTokens ?? 4096,
+          maxOutputTokens: requestedMaxTokens,
+          ...(isProModel ? { thinkingConfig: { thinkingBudget: Math.min(requestedMaxTokens, 8192) } } : {}),
+          ...(options.jsonOutput ? { responseMimeType: "application/json" } : {}),
         },
       });
 
-      // Convert messages to Gemini history + final user message
-      const history = messages.slice(0, -1).map((m) => ({
-        role: m.role === "assistant" ? ("model" as const) : ("user" as const),
-        parts: [{ text: m.content }],
-      }));
-      const lastMessage = messages[messages.length - 1];
-
-      const chat = geminiModel.startChat({ history });
-      const result = await chat.sendMessage(lastMessage.content);
-      const response = result.response;
-      const content = response.text();
-
+      const content = response.text ?? "";
       const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
       const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+
+      // Log if output was likely truncated
+      if (outputTokens > 0 && outputTokens >= requestedMaxTokens * 0.95) {
+        console.warn(`[Gemini] WARNING: Output may be truncated — used ${outputTokens}/${requestedMaxTokens} tokens. Consider increasing maxTokens.`);
+      }
 
       return {
         content,
@@ -471,26 +494,34 @@ export async function aiVision(
   let result: AICallResult;
 
   if (provider === "gemini") {
-    // Gemini vision: inline image part
+    // Gemini vision via new @google/genai SDK
     const start = Date.now();
     const client = getGemini();
-    const geminiModel = client.getGenerativeModel({
+
+    const isProModel = model.includes("-pro");
+
+    const response = await client.models.generateContent({
       model,
-      ...(options.systemPrompt ? { systemInstruction: options.systemPrompt } : {}),
-      generationConfig: {
+      contents: [
+        {
+          role: "user" as const,
+          parts: [
+            { inlineData: { mimeType: mediaType, data: imageBase64 } },
+            { text: userMessage },
+          ],
+        },
+      ],
+      config: {
+        systemInstruction: options.systemPrompt ?? undefined,
         temperature: options.temperature ?? 0.3,
         maxOutputTokens: options.maxTokens ?? 8192,
+        ...(isProModel ? { thinkingConfig: { thinkingBudget: 4096 } } : {}),
       },
     });
 
-    const response = await geminiModel.generateContent([
-      { inlineData: { mimeType: mediaType, data: imageBase64 } },
-      { text: userMessage },
-    ]);
-
-    const text = response.response.text();
-    const inputTokens = response.response.usageMetadata?.promptTokenCount ?? 0;
-    const outputTokens = response.response.usageMetadata?.candidatesTokenCount ?? 0;
+    const text = response.text ?? "";
+    const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+    const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
 
     result = {
       content: text,
@@ -517,6 +548,69 @@ export async function aiVision(
       { ...options, model: anthropicModel, maxTokens: options.maxTokens ?? 8192 }
     );
   }
+
+  if (logContext) {
+    await logAICall(logContext, result).catch((err) =>
+      console.error("Failed to log AI call:", err)
+    );
+  }
+
+  return result;
+}
+
+/**
+ * Send a PDF document directly to Gemini Vision for parsing.
+ * Gemini 2.5 natively supports PDF input — it can see all pages, diagrams, and figures.
+ * This is the preferred method for PDFs with images/diagrams.
+ */
+export async function aiPdfVision(
+  userMessage: string,
+  pdfBase64: string,
+  options: AICallOptions = {},
+  logContext?: AILogContext
+): Promise<AICallResult> {
+  const model = options.model ?? AI_MODELS.GEMINI_FLASH;
+  const client = getGemini();
+  const start = Date.now();
+  const isProModel = model.includes("-pro");
+  const requestedMaxTokens = options.maxTokens ?? 32768;
+
+  const response = await client.models.generateContent({
+    model,
+    contents: [
+      {
+        role: "user" as const,
+        parts: [
+          { inlineData: { mimeType: "application/pdf", data: pdfBase64 } },
+          { text: userMessage },
+        ],
+      },
+    ],
+    config: {
+      systemInstruction: options.systemPrompt ?? undefined,
+      temperature: options.temperature ?? 0.1,
+      maxOutputTokens: requestedMaxTokens,
+      ...(isProModel ? { thinkingConfig: { thinkingBudget: Math.min(requestedMaxTokens, 8192) } } : {}),
+      ...(options.jsonOutput ? { responseMimeType: "application/json" } : {}),
+    },
+  });
+
+  const content = response.text ?? "";
+  const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+  const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+
+  if (outputTokens > 0 && outputTokens >= requestedMaxTokens * 0.95) {
+    console.warn(`[GeminiPDF] WARNING: Output may be truncated — used ${outputTokens}/${requestedMaxTokens} tokens.`);
+  }
+
+  const result: AICallResult = {
+    content,
+    model,
+    inputTokens,
+    outputTokens,
+    costUsd: calculateCost(model, inputTokens, outputTokens),
+    durationMs: Date.now() - start,
+  };
 
   if (logContext) {
     await logAICall(logContext, result).catch((err) =>

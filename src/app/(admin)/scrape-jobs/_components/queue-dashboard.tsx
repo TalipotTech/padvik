@@ -31,7 +31,7 @@ function StatusDot({ count, color }: { count: number; color: string }) {
   );
 }
 
-export function QueueDashboard() {
+export function QueueDashboard({ jobTypeFilter: _jobTypeFilter = "all" }: { jobTypeFilter?: string }) {
   const [status, setStatus] = useState<QueueStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

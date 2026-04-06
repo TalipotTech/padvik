@@ -5,11 +5,19 @@ import { scrapeJobs } from "@/db/schema/system";
 import { desc, eq, and, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 
-/** Board code to source URL mapping */
-const BOARD_SOURCE_URLS: Record<string, string> = {
-  CBSE: "https://cbseacademic.nic.in/curriculum_2026.html",
-  ICSE: "https://www.cisce.org/regulations-syllabi",
-  KL_SCERT: "https://scert.kerala.gov.in/curriculum",
+/** Board code to source URL mapping, keyed by job type */
+const BOARD_SOURCE_URLS: Record<string, Record<string, string>> = {
+  CBSE: {
+    syllabus: "https://cbseacademic.nic.in/curriculum_2026.html",
+    question_paper: "https://cbseacademic.nic.in/SQP_CLASSX_2025-26.html",
+    textbook: "https://cbseacademic.nic.in",
+  },
+  ICSE: {
+    syllabus: "https://www.cisce.org/regulations-syllabi",
+  },
+  KL_SCERT: {
+    syllabus: "https://scert.kerala.gov.in/curriculum",
+  },
 };
 
 const SUPPORTED_BOARDS = Object.keys(BOARD_SOURCE_URLS);
@@ -44,6 +52,7 @@ const createJobSchema = z.object({
   grades: z.array(z.number().int().min(1).max(12)).optional(),
   maxPdfs: z.number().int().min(1).max(500).optional(),
   aiProvider: z.enum(["anthropic", "gemini", "mistral", "openai", "perplexity", "auto"]).optional(),
+  retrySkipped: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -76,7 +85,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { boardCode, jobType, grades, maxPdfs, aiProvider } = parsed.data;
+  const { boardCode, jobType, grades, maxPdfs, aiProvider, retrySkipped } = parsed.data;
 
   // Validate board code
   if (!SUPPORTED_BOARDS.includes(boardCode)) {
@@ -92,6 +101,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Validate board supports the requested job type
+  const boardUrls = BOARD_SOURCE_URLS[boardCode];
+  if (!boardUrls[jobType]) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          code: "NOT_IMPLEMENTED",
+          message: `${jobType} scraping is not yet supported for ${boardCode}.`,
+        },
+      },
+      { status: 400 }
+    );
+  }
+
+  const sourceUrl = boardUrls[jobType];
+
   // --- Duplicate prevention ---
   // Check if there's already a queued or running job for the same board+jobType
   const existingJobs = await db
@@ -99,7 +125,7 @@ export async function POST(request: NextRequest) {
     .from(scrapeJobs)
     .where(
       and(
-        eq(scrapeJobs.sourceUrl, BOARD_SOURCE_URLS[boardCode]),
+        eq(scrapeJobs.sourceUrl, sourceUrl),
         eq(scrapeJobs.jobType, jobType),
         inArray(scrapeJobs.status, ["queued", "running"])
       )
@@ -118,8 +144,6 @@ export async function POST(request: NextRequest) {
       { status: 409 }
     );
   }
-
-  const sourceUrl = BOARD_SOURCE_URLS[boardCode];
 
   // Create the job record with rich metadata
   const [job] = await db
@@ -149,6 +173,7 @@ export async function POST(request: NextRequest) {
     grades,
     maxPdfs,
     aiProvider,
+    retrySkipped,
   });
 
   // Store queueJobId in metadata for later reference

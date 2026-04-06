@@ -2,10 +2,10 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 
-const adminNav = [
-  { href: "/scrape-jobs", label: "Scrape Pipeline" },
-  { href: "/curriculum", label: "Curriculum" },
-  { href: "/syllabus-viewer", label: "Syllabus Viewer" },
+const adminNavGroups = [
+  { href: "/scrape-jobs", label: "Pipeline" },
+  { href: "/curriculum", label: "Syllabus" },
+  { href: "/question-papers", label: "Questions" },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -25,9 +25,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <span className="font-semibold">Padvik Admin</span>
             </Link>
 
-            {/* Nav tabs */}
+            {/* Nav — group links */}
             <nav className="ml-4 hidden items-center gap-1 sm:flex">
-              {adminNav.map((item) => (
+              {adminNavGroups.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
@@ -55,7 +55,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
         {/* Mobile nav */}
         <div className="flex items-center gap-1 overflow-x-auto border-t px-4 py-1 sm:hidden">
-          {adminNav.map((item) => (
+          {adminNavGroups.map((item) => (
             <Link
               key={item.href}
               href={item.href}

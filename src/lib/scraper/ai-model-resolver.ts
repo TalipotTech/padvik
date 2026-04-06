@@ -16,9 +16,9 @@ const PROVIDER_MODEL_MAP: Record<Exclude<AIProviderChoice, "auto">, AIModel> = {
 
 /** For "auto" mode, rotate through these in order (cheapest capable first) */
 const AUTO_ROTATION: AIModel[] = [
-  AI_MODELS.GEMINI_PRO,      // Gemini 2.0 Flash: $0.10/1M input — strong for structured extraction
-  AI_MODELS.FALLBACK_MINI,   // GPT-4o-mini: $0.15/1M input — reliable JSON output
-  AI_MODELS.MISTRAL_LARGE,   // Mistral Large: $2.00/1M input — good multilingual
+  AI_MODELS.GEMINI_FLASH,    // Gemini 2.5 Flash: $0.30/1M input — fast, good multilingual (Hindi, Tamil, etc.)
+  AI_MODELS.GEMINI_PRO,      // Gemini 2.5 Pro: $1.25/1M input — best for complex multilingual papers
+  AI_MODELS.MISTRAL_LARGE,   // Mistral Large: $2.00/1M input — strong multilingual
   AI_MODELS.PRIMARY,         // Claude Sonnet: $3.00/1M input — highest quality fallback
 ];
 

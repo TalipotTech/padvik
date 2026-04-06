@@ -88,13 +88,15 @@ function getProviderColor(model: string): string {
   return "text-muted-foreground";
 }
 
-export function AIUsagePanel() {
+export function AIUsagePanel({ jobTypeFilter = "all" }: { jobTypeFilter?: string }) {
   const [data, setData] = useState<AIUsageData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchUsage = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/ai-usage");
+      const params = new URLSearchParams();
+      if (jobTypeFilter !== "all") params.set("jobType", jobTypeFilter);
+      const res = await fetch(`/api/admin/ai-usage?${params}`);
       const json = await res.json();
       if (json.success) {
         setData(json.data);
@@ -104,7 +106,7 @@ export function AIUsagePanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [jobTypeFilter]);
 
   useEffect(() => {
     fetchUsage();

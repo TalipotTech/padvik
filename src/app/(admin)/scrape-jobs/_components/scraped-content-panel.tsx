@@ -57,7 +57,7 @@ interface ContentData {
   recentChapters: RecentChapter[];
 }
 
-export function ScrapedContentPanel() {
+export function ScrapedContentPanel({ jobTypeFilter: _jobTypeFilter = "all" }: { jobTypeFilter?: string }) {
   const [data, setData] = useState<ContentData | null>(null);
   const [loading, setLoading] = useState(true);
 

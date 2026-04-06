@@ -338,11 +338,13 @@ export class CbseScraper extends BaseScraper {
     let modelUsed = "";
     for (const model of models) {
       try {
+        const isGemini = model.startsWith("gemini-");
         aiResult = await aiChat(userPrompt, {
           model,
           systemPrompt: SYSTEM_PROMPT,
           temperature: promptConfig.temperature,
           maxTokens: promptConfig.maxTokens,
+          jsonOutput: isGemini,
         });
         modelUsed = model;
         this.log(

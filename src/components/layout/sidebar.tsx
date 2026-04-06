@@ -16,6 +16,13 @@ import {
   LogOut,
   Users,
   Upload,
+  ClipboardList,
+  Activity,
+  Cpu,
+  AlertTriangle,
+  Eye,
+  CheckSquare,
+  BookMarked,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,20 +47,35 @@ interface NavItem {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  roles?: string[]; // if undefined, shown to all roles
+  roles?: string[];
+  /** Section header — shown before this item's group */
+  section?: string;
 }
 
 const navItems: NavItem[] = [
+  // --- Common ---
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/dashboard/syllabus", label: "Syllabus", icon: BookOpen, roles: ["student", "teacher"] },
   { href: "/dashboard/learn", label: "Learn", icon: GraduationCap, roles: ["student"] },
+  { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, roles: ["student", "teacher", "admin"] },
   { href: "/dashboard/exams", label: "Exams", icon: FileText, roles: ["student", "teacher"] },
   { href: "/dashboard/chat", label: "AI Chat", icon: MessageSquare, roles: ["student", "teacher"] },
   { href: "/dashboard/classroom", label: "Classrooms", icon: Users, roles: ["teacher"] },
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, roles: ["student", "teacher", "parent"] },
-  { href: "/scrape-jobs", label: "Scrape Pipeline", icon: Upload, roles: ["admin"] },
-  { href: "/curriculum", label: "Curriculum", icon: BookOpen, roles: ["admin"] },
-  { href: "/syllabus-viewer", label: "Syllabus Viewer", icon: FileText, roles: ["admin"] },
+
+  // --- Admin: Content Pipeline ---
+  { href: "/scrape-jobs", label: "Scrape Jobs", icon: Upload, roles: ["admin"], section: "Content Pipeline" },
+
+  // --- Admin: Syllabus ---
+  { href: "/curriculum", label: "Curriculum Explorer", icon: BookOpen, roles: ["admin"], section: "Syllabus" },
+  { href: "/syllabus-viewer", label: "Syllabus Viewer", icon: Eye, roles: ["admin"] },
+
+  // --- Admin: Questions ---
+  { href: "/question-papers", label: "Question Papers", icon: FileText, roles: ["admin"], section: "Questions" },
+  { href: "/question-viewer", label: "Question Viewer", icon: BookMarked, roles: ["admin"] },
+  { href: "/question-paper-verifier", label: "Paper Verifier", icon: CheckSquare, roles: ["admin"] },
+
+  // --- Common ---
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
@@ -159,15 +181,27 @@ function SidebarContent({
 
       {/* Nav */}
       <ScrollArea className="flex-1 px-3 py-3">
-        <nav className="flex flex-col gap-1">
-          {filteredNav.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              collapsed={collapsed}
-              pathname={pathname}
-            />
-          ))}
+        <nav className="flex flex-col gap-0.5">
+          {filteredNav.map((item, i) => {
+            // Show section header if this item starts a new section
+            const showSection = item.section && (i === 0 || filteredNav[i - 1]?.section !== item.section);
+            return (
+              <div key={item.href}>
+                {showSection && (
+                  <div
+                    className={cn(
+                      "px-3 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60",
+                      collapsed && "px-0 text-center",
+                      i > 0 && "border-t mt-2",
+                    )}
+                  >
+                    {collapsed ? item.section!.charAt(0) : item.section}
+                  </div>
+                )}
+                <NavLink item={item} collapsed={collapsed} pathname={pathname} />
+              </div>
+            );
+          })}
         </nav>
       </ScrollArea>
 
