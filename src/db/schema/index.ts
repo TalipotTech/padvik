@@ -7,3 +7,4 @@ export * from "./analytics";
 export * from "./classrooms";
 export * from "./chat";
 export * from "./system";
+export * from "./learn";

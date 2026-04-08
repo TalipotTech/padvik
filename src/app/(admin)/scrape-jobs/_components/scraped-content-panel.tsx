@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
 import {
   BookOpen,
   Layers,
@@ -9,6 +11,7 @@ import {
   GraduationCap,
   Globe,
   Loader2,
+  Eye,
 } from "lucide-react";
 
 interface ContentTotals {
@@ -44,10 +47,12 @@ interface RecentChapter {
   title: string;
   chapter_number: number;
   subject_name: string;
+  subject_id: number;
   grade: number;
   board_code: string;
   created_at: string;
   topic_count: number;
+  source_pdf: string | null;
 }
 
 interface ContentData {
@@ -209,6 +214,7 @@ export function ScrapedContentPanel({ jobTypeFilter: _jobTypeFilter = "all" }: {
                     <th className="pb-2 pr-3">Ch#</th>
                     <th className="pb-2 pr-3">Chapter Title</th>
                     <th className="pb-2 pr-3">Topics</th>
+                    <th className="pb-2 pr-3">Source</th>
                     <th className="pb-2">Added</th>
                   </tr>
                 </thead>
@@ -217,11 +223,30 @@ export function ScrapedContentPanel({ jobTypeFilter: _jobTypeFilter = "all" }: {
                     <tr key={ch.id} className="border-b last:border-0">
                       <td className="py-2 pr-3 text-xs">{ch.board_code}</td>
                       <td className="py-2 pr-3 text-xs">Class {ch.grade}</td>
-                      <td className="py-2 pr-3 text-xs font-medium">{ch.subject_name}</td>
+                      <td className="py-2 pr-3 text-xs font-medium">
+                        <Link href={`/curriculum?subjectId=${ch.subject_id}`} className="text-violet-600 hover:underline">
+                          {ch.subject_name}
+                        </Link>
+                      </td>
                       <td className="py-2 pr-3 font-mono text-xs">{ch.chapter_number}</td>
                       <td className="max-w-[250px] truncate py-2 pr-3 text-xs">{ch.title}</td>
                       <td className="py-2 pr-3 text-xs font-medium text-green-600">
                         {ch.topic_count}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {ch.source_pdf ? (
+                          <a
+                            href={`/api/admin/local-pdf?path=${encodeURIComponent(ch.source_pdf)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[10px] text-violet-600 hover:underline"
+                          >
+                            <Eye className="h-3 w-3" />
+                            PDF
+                          </a>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">—</span>
+                        )}
                       </td>
                       <td className="py-2 text-xs text-muted-foreground">
                         {new Date(ch.created_at).toLocaleDateString()}

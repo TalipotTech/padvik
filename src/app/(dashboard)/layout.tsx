@@ -11,7 +11,7 @@ const devUser: { name: string | null; email: string | null; image: string | null
   name: "Dev User",
   email: "dev@padvik.local",
   image: null,
-  role: "student",
+  role: "admin",
 };
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {

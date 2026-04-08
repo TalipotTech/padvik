@@ -67,6 +67,15 @@ export const userNotes = pgTable(
     bodyFormat: varchar("body_format", { length: 10 }).notNull().default("markdown"),
     isPrivate: boolean("is_private").notNull().default(true),
     tags: text("tags").array().default([]),
+    /** "typed" for text notes, "handwritten" for photo uploads with OCR */
+    noteType: varchar("note_type", { length: 20 }).notNull().default("typed"),
+    /** URL/path to uploaded handwritten note image */
+    imageUrl: text("image_url"),
+    /** FK to fileUploads record for the image */
+    imageFileId: bigint("image_file_id", { mode: "number" }).references(
+      () => fileUploads.id,
+      { onDelete: "set null" }
+    ),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

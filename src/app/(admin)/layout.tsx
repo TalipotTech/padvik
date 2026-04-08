@@ -4,8 +4,11 @@ import { redirect } from "next/navigation";
 
 const adminNavGroups = [
   { href: "/scrape-jobs", label: "Pipeline" },
+  { href: "/admin/pipeline", label: "Overview" },
   { href: "/curriculum", label: "Syllabus" },
   { href: "/question-papers", label: "Questions" },
+  { href: "/admin/content-review", label: "Review" },
+  { href: "/admin/ai-providers", label: "AI Providers" },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {

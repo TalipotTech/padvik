@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, BookOpen, Clock, FileText } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock, FileText, Layers, HelpCircle, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,9 +49,10 @@ export function TopicDetail({ topicId }: TopicDetailProps) {
     );
   }
 
-  const notes = contentItems.filter((c) => c.contentType === "notes");
+  const notes = contentItems.filter((c) => c.contentType === "notes" || c.contentType === "note" || c.contentType === "explanation");
   const summaries = contentItems.filter((c) => c.contentType === "summary");
-  const allContent = [...notes, ...summaries];
+  const flashcards = contentItems.filter((c) => c.contentType === "flashcard_set");
+  const allContent = [...notes, ...summaries, ...flashcards];
 
   return (
     <div className="space-y-6 pt-2">
@@ -99,6 +100,12 @@ export function TopicDetail({ topicId }: TopicDetailProps) {
             <TabsTrigger value="summary">
               Summary {summaries.length > 0 && `(${summaries.length})`}
             </TabsTrigger>
+            {flashcards.length > 0 && (
+              <TabsTrigger value="flashcards">
+                <Layers className="h-3.5 w-3.5 mr-1" />
+                Flashcards ({flashcards.length})
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="notes" className="space-y-4">
@@ -120,17 +127,31 @@ export function TopicDetail({ topicId }: TopicDetailProps) {
               ))
             )}
           </TabsContent>
+
+          {flashcards.length > 0 && (
+            <TabsContent value="flashcards" className="space-y-4">
+              {flashcards.map((item) => (
+                <ContentCard key={item.id} item={item} />
+              ))}
+            </TabsContent>
+          )}
         </Tabs>
       ) : (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-            <FileText className="h-10 w-10 text-muted-foreground/40" />
+            <Sparkles className="h-10 w-10 text-primary/40" />
             <div>
-              <p className="font-medium">No content yet</p>
+              <p className="font-medium">Content being prepared</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Content for this topic is being prepared. Check back soon!
+                Our AI pipeline is generating study notes, flashcards, and questions for this topic. Check back soon!
               </p>
             </div>
+            <Link href="/dashboard/question-bank">
+              <Button variant="outline" size="sm">
+                <HelpCircle className="h-3.5 w-3.5 mr-1" />
+                Browse Question Bank
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       )}
@@ -138,20 +159,36 @@ export function TopicDetail({ topicId }: TopicDetailProps) {
   );
 }
 
-function ContentCard({ item }: { item: { id: number; title: string; body: string | null; sourceType: string; qualityScore: string | null } }) {
+function ContentCard({ item }: { item: { id: number; title: string; body: string | null; sourceType: string; qualityScore: string | null; language?: string; contentType?: string } }) {
+  const sourceLabels: Record<string, string> = {
+    ai_generated: "AI",
+    ncert: "NCERT",
+    diksha: "DIKSHA",
+    kerala_scert: "Kerala",
+    karnataka_ktbs: "Karnataka",
+    tamilnadu_dge: "Tamil Nadu",
+    maharashtra_balbharati: "Maharashtra",
+    scraped: "Scraped",
+  };
+  const sourceLabel = sourceLabels[item.sourceType] ?? null;
+  const langLabels: Record<string, string> = { en: "EN", hi: "HI", ml: "ML", ta: "TA", te: "TE", kn: "KN", mr: "MR" };
+
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-base">{item.title}</CardTitle>
           <div className="flex gap-1.5 shrink-0">
-            {item.sourceType === "ai_generated" && (
-              <Badge variant="secondary" className="text-xs">AI</Badge>
+            {sourceLabel && (
+              <Badge variant="secondary" className="text-[10px]">{sourceLabel}</Badge>
+            )}
+            {item.language && item.language !== "en" && (
+              <Badge variant="outline" className="text-[10px]">{langLabels[item.language] ?? item.language.toUpperCase()}</Badge>
             )}
             {item.qualityScore !== null && (
               <Badge
                 variant={parseFloat(item.qualityScore) >= 0.7 ? "success" : "outline"}
-                className="text-xs"
+                className="text-[10px]"
               >
                 {Math.round(parseFloat(item.qualityScore) * 100)}%
               </Badge>

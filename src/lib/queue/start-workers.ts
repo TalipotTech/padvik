@@ -10,6 +10,7 @@ config(); // Also try .env as fallback
 import { startScrapeWorker, stopScrapeWorker } from "./scrape-worker";
 import { startContentWorker, stopContentWorker } from "./content-worker";
 import { startFileWorker, stopFileWorker } from "./file-worker";
+import { startAllPipelineWorkers, stopAllPipelineWorkers } from "./pipeline-worker";
 import { closeRedis } from "../redis";
 
 async function main() {
@@ -18,6 +19,7 @@ async function main() {
   startScrapeWorker();
   startContentWorker();
   startFileWorker();
+  startAllPipelineWorkers();
 
   console.log("[Workers] All workers started. Press Ctrl+C to stop.");
 
@@ -29,6 +31,7 @@ async function main() {
       stopScrapeWorker(),
       stopContentWorker(),
       stopFileWorker(),
+      stopAllPipelineWorkers(),
     ]);
 
     await closeRedis();

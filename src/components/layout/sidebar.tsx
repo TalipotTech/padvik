@@ -55,8 +55,9 @@ interface NavItem {
 const navItems: NavItem[] = [
   // --- Common ---
   { href: "/dashboard", label: "Dashboard", icon: Home },
-  { href: "/dashboard/syllabus", label: "Syllabus", icon: BookOpen, roles: ["student", "teacher"] },
-  { href: "/dashboard/learn", label: "Learn", icon: GraduationCap, roles: ["student"] },
+  { href: "/dashboard/syllabus", label: "Study", icon: BookOpen, roles: ["student", "teacher", "admin"] },
+  { href: "/dashboard/learn", label: "My Learning", icon: GraduationCap, roles: ["student", "admin"] },
+  { href: "/dashboard/learn/journal", label: "Study Journal", icon: BookMarked, roles: ["student", "admin"] },
   { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, roles: ["student", "teacher", "admin"] },
   { href: "/dashboard/exams", label: "Exams", icon: FileText, roles: ["student", "teacher"] },
   { href: "/dashboard/chat", label: "AI Chat", icon: MessageSquare, roles: ["student", "teacher"] },
@@ -65,6 +66,9 @@ const navItems: NavItem[] = [
 
   // --- Admin: Content Pipeline ---
   { href: "/scrape-jobs", label: "Scrape Jobs", icon: Upload, roles: ["admin"], section: "Content Pipeline" },
+  { href: "/admin/pipeline", label: "Pipeline Overview", icon: Activity, roles: ["admin"] },
+  { href: "/admin/content-review", label: "Content Review", icon: CheckSquare, roles: ["admin"] },
+  { href: "/admin/ai-providers", label: "AI Providers", icon: Cpu, roles: ["admin"] },
 
   // --- Admin: Syllabus ---
   { href: "/curriculum", label: "Curriculum Explorer", icon: BookOpen, roles: ["admin"], section: "Syllabus" },

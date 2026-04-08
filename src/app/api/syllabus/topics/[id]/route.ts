@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { boards, standards, subjects, chapters, topics } from "@/db/schema/curriculum";
 import { contentItems } from "@/db/schema/content";
@@ -6,6 +7,8 @@ import { and, eq } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // GET /api/syllabus/topics/[id] — Topic with full context + content items
+// Admin users see ALL content (including pending/unpublished).
+// Students see only published content.
 // ---------------------------------------------------------------------------
 export async function GET(
   _req: NextRequest,
@@ -19,6 +22,12 @@ export async function GET(
       { status: 400 },
     );
   }
+
+  // Check if admin
+  const session = await auth();
+  const isAdmin = session?.user?.role === "admin";
+  // In dev mode, treat as admin
+  const devBypass = process.env.NODE_ENV === "development" && !session;
 
   // Join up the hierarchy: topic → chapter → subject → standard → board
   const rows = await db
@@ -46,12 +55,18 @@ export async function GET(
 
   const { topic, chapter, subject, standard, board } = rows[0];
 
-  // Get published content for this topic
-  const content = await db
-    .select()
-    .from(contentItems)
-    .where(and(eq(contentItems.topicId, topicId), eq(contentItems.isPublished, true)))
-    .orderBy(contentItems.contentType, contentItems.createdAt);
+  // Admin/dev: show ALL content. Students: only published content.
+  const content = isAdmin || devBypass
+    ? await db
+        .select()
+        .from(contentItems)
+        .where(eq(contentItems.topicId, topicId))
+        .orderBy(contentItems.contentType, contentItems.createdAt)
+    : await db
+        .select()
+        .from(contentItems)
+        .where(and(eq(contentItems.topicId, topicId), eq(contentItems.isPublished, true)))
+        .orderBy(contentItems.contentType, contentItems.createdAt);
 
   return NextResponse.json({
     success: true,

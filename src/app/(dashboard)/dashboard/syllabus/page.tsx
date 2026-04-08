@@ -1,7 +1,7 @@
 import { SyllabusExplorer } from "./_components/syllabus-explorer";
 
 export const metadata = {
-  title: "Syllabus | Padvik",
+  title: "Study | Padvik",
 };
 
 export default function SyllabusPage() {

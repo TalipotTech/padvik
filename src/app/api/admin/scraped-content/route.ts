@@ -75,10 +75,12 @@ export async function GET() {
         ch.title,
         ch.chapter_number,
         sub.name AS subject_name,
+        sub.id AS subject_id,
         st.grade,
         b.code AS board_code,
         ch.created_at,
-        (SELECT count(*) FROM topics WHERE chapter_id = ch.id)::int AS topic_count
+        (SELECT count(*) FROM topics WHERE chapter_id = ch.id)::int AS topic_count,
+        COALESCE(ch.metadata->>'sourcePdf', sub.metadata->>'sourcePdf') AS source_pdf
       FROM chapters ch
       JOIN subjects sub ON ch.subject_id = sub.id
       JOIN standards st ON sub.standard_id = st.id

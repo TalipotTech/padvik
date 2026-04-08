@@ -12,6 +12,7 @@ const PROVIDER_MODEL_MAP: Record<Exclude<AIProviderChoice, "auto">, AIModel> = {
   mistral: AI_MODELS.MISTRAL_LARGE,
   openai: AI_MODELS.FALLBACK,
   perplexity: AI_MODELS.PERPLEXITY_SONAR,
+  sarvam: AI_MODELS.GEMINI_PRO, // placeholder — routes to Gemini until Sarvam SDK is integrated
 };
 
 /** For "auto" mode, rotate through these in order (cheapest capable first) */

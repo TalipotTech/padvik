@@ -1,7 +1,9 @@
 /**
  * Centralized AI provider — all AI calls go through here.
  * Supports: Anthropic Claude (primary), Google Gemini, Mistral, Perplexity, OpenAI (fallback)
- * Features: token counting, cost logging, retry on transient errors.
+ * Features: token counting, cost logging, retry on transient errors,
+ *           language-based routing (Indic → Gemini), auto-failover chains,
+ *           per-provider rate limiting via Redis.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam, ContentBlockParam } from "@anthropic-ai/sdk/resources/messages";
@@ -10,6 +12,7 @@ import { Mistral } from "@mistralai/mistralai";
 import OpenAI from "openai";
 import { db } from "@/db";
 import { contentPipelineLogs } from "@/db/schema/system";
+import { getRedisConnection } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
 // Models
@@ -40,6 +43,146 @@ export const AI_MODELS = {
 export type AIModel = (typeof AI_MODELS)[keyof typeof AI_MODELS];
 
 type Provider = "anthropic" | "gemini" | "mistral" | "perplexity" | "openai";
+
+// ---------------------------------------------------------------------------
+// Public provider name type — used by callers for explicit routing
+// ---------------------------------------------------------------------------
+export type AIProviderName = "anthropic" | "gemini" | "mistral" | "openai" | "perplexity" | "sarvam";
+
+/** Indic language codes that trigger Gemini routing for OCR/vision tasks */
+export const INDIC_LANGUAGES = ["hi", "ml", "ta", "te", "kn", "mr", "gu", "bn"] as const;
+export type IndicLanguage = (typeof INDIC_LANGUAGES)[number];
+export type SupportedLanguage = "en" | IndicLanguage;
+
+/** Check if a language code is an Indic language */
+export function isIndicLanguage(lang?: string): lang is IndicLanguage {
+  return !!lang && (INDIC_LANGUAGES as readonly string[]).includes(lang);
+}
+
+// ---------------------------------------------------------------------------
+// Sarvam Vision placeholder — REST-based, implement later
+// ---------------------------------------------------------------------------
+export interface SarvamVisionOptions {
+  apiKey: string;
+  model?: string;
+  language?: string;
+}
+
+async function callSarvamVision(
+  _imageBase64: string,
+  _prompt: string,
+  _options?: SarvamVisionOptions
+): Promise<AICallResult> {
+  // TODO: Implement Sarvam Vision REST API integration
+  // Sarvam (sarvam.ai) specializes in Indic OCR with 91-95% word accuracy
+  // on Hindi, Tamil, Bengali, Marathi, Malayalam
+  throw new AIProviderError(
+    "Sarvam Vision provider not yet implemented",
+    501,
+    "sarvam",
+    false
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rate limiting per provider
+// ---------------------------------------------------------------------------
+const RATE_LIMITS: Record<string, number> = {
+  anthropic: 60,
+  gemini: 60,
+  openai: 60,
+  mistral: 60,
+  perplexity: 30,
+  sarvam: 30,
+};
+
+/**
+ * Check if provider is approaching its rate limit.
+ * Key format: padvik:rate:{provider}:{minute}
+ */
+async function checkRateLimit(provider: string): Promise<boolean> {
+  try {
+    const redis = getRedisConnection();
+    const minute = Math.floor(Date.now() / 60000);
+    const key = `padvik:rate:${provider}:${minute}`;
+    const count = await redis.get(key);
+    const limit = RATE_LIMITS[provider] ?? 60;
+    return (parseInt(count ?? "0", 10)) >= limit;
+  } catch {
+    // If Redis is unavailable, don't block — proceed without rate limiting
+    return false;
+  }
+}
+
+/** Increment the rate counter for a provider */
+async function incrementRateCount(provider: string): Promise<void> {
+  try {
+    const redis = getRedisConnection();
+    const minute = Math.floor(Date.now() / 60000);
+    const key = `padvik:rate:${provider}:${minute}`;
+    await redis.multi().incr(key).expire(key, 120).exec();
+  } catch {
+    // Non-critical — silently ignore Redis failures
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provider failover chains
+// ---------------------------------------------------------------------------
+
+/** Get failover chain of models based on language context */
+function getFailoverChain(language?: string): AIModel[] {
+  if (isIndicLanguage(language)) {
+    // Indic tasks: Gemini → Claude → OpenAI (Sarvam handled separately for vision)
+    return [
+      AI_MODELS.GEMINI_PRO,
+      AI_MODELS.PRIMARY,
+      AI_MODELS.FALLBACK,
+    ];
+  }
+  // English/default: Claude → OpenAI → Gemini
+  return [
+    AI_MODELS.PRIMARY,
+    AI_MODELS.FALLBACK,
+    AI_MODELS.GEMINI_PRO,
+  ];
+}
+
+/** Map AIProviderName to a default model */
+function providerNameToModel(name: AIProviderName): AIModel {
+  switch (name) {
+    case "anthropic": return AI_MODELS.PRIMARY;
+    case "gemini": return AI_MODELS.GEMINI_PRO;
+    case "mistral": return AI_MODELS.MISTRAL_LARGE;
+    case "openai": return AI_MODELS.FALLBACK;
+    case "perplexity": return AI_MODELS.PERPLEXITY_SONAR;
+    case "sarvam": return AI_MODELS.GEMINI_PRO; // placeholder — Sarvam has no model enum yet
+  }
+}
+
+/** Resolve which model to use based on optional provider, language, and existing model */
+function resolveRoutedModel(
+  options: AICallOptions,
+  isVisionTask: boolean
+): AIModel {
+  // 1. Explicit provider override takes priority
+  if (options.provider) {
+    return providerNameToModel(options.provider);
+  }
+
+  // 2. If model already specified, use it (existing behavior)
+  if (options.model) {
+    return options.model;
+  }
+
+  // 3. Language-based routing for vision/OCR tasks with Indic languages
+  if (isVisionTask && isIndicLanguage(options.language)) {
+    return AI_MODELS.GEMINI_PRO;
+  }
+
+  // 4. Default — existing behavior (PRIMARY = Claude)
+  return AI_MODELS.PRIMARY;
+}
 
 function getProvider(model: AIModel): Provider {
   if (model.startsWith("claude-")) return "anthropic";
@@ -139,15 +282,21 @@ export interface AICallOptions {
   maxTokens?: number;
   /** Force JSON output (used by Gemini responseMimeType) */
   jsonOutput?: boolean;
+  /** Explicit provider override — routes to this provider regardless of model */
+  provider?: AIProviderName;
+  /** Language hint for routing — Indic languages route to Gemini for OCR/vision tasks */
+  language?: string;
 }
 
 export interface AICallResult {
   content: string;
   model: string;
+  provider: string;
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
   durationMs: number;
+  language?: string;
 }
 
 /** Error class with HTTP status for provider failures */
@@ -232,6 +381,7 @@ async function callAnthropic(
       return {
         content,
         model,
+        provider: "anthropic",
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
         costUsd: calculateCost(model, response.usage.input_tokens, response.usage.output_tokens),
@@ -295,6 +445,7 @@ async function callGemini(
       return {
         content,
         model,
+        provider: "gemini",
         inputTokens,
         outputTokens,
         costUsd: calculateCost(model, inputTokens, outputTokens),
@@ -344,6 +495,7 @@ async function callMistral(
       return {
         content,
         model,
+        provider: "mistral",
         inputTokens,
         outputTokens,
         costUsd: calculateCost(model, inputTokens, outputTokens),
@@ -365,7 +517,8 @@ async function callMistral(
 async function callOpenAICompatible(
   client: OpenAI,
   messages: SimpleMessage[],
-  options: AICallOptions
+  options: AICallOptions,
+  providerName: string = "openai"
 ): Promise<AICallResult> {
   const model = options.model ?? AI_MODELS.FALLBACK;
   const start = Date.now();
@@ -391,6 +544,7 @@ async function callOpenAICompatible(
       return {
         content,
         model,
+        provider: providerName,
         inputTokens,
         outputTokens,
         costUsd: calculateCost(model, inputTokens, outputTokens),
@@ -432,6 +586,9 @@ async function callProvider(
   const model = options.model ?? AI_MODELS.PRIMARY;
   const provider = getProvider(model);
 
+  // Track rate limit
+  await incrementRateCount(provider);
+
   switch (provider) {
     case "anthropic":
       return callAnthropic(messages, options);
@@ -443,12 +600,60 @@ async function callProvider(
       return callMistral(toSimpleMessages(messages), options);
 
     case "perplexity":
-      return callOpenAICompatible(getPerplexity(), toSimpleMessages(messages), options);
+      return callOpenAICompatible(getPerplexity(), toSimpleMessages(messages), options, "perplexity");
 
     case "openai":
     default:
-      return callOpenAICompatible(getOpenAI(), toSimpleMessages(messages), options);
+      return callOpenAICompatible(getOpenAI(), toSimpleMessages(messages), options, "openai");
   }
+}
+
+/**
+ * Call provider with auto-failover — tries the primary model, then falls back
+ * through the chain if the provider returns 429/500/timeout or is rate-limited.
+ */
+async function callProviderWithFailover(
+  messages: MessageParam[],
+  options: AICallOptions,
+  isVisionTask: boolean = false
+): Promise<AICallResult> {
+  const primaryModel = resolveRoutedModel(options, isVisionTask);
+  const failoverChain = getFailoverChain(options.language);
+
+  // Build ordered model list: primary first, then failover chain (deduped)
+  const modelsToTry = [primaryModel, ...failoverChain.filter((m) => m !== primaryModel)];
+
+  let lastError: unknown;
+
+  for (const model of modelsToTry) {
+    const provider = getProvider(model);
+
+    // Check rate limit before attempting
+    const isLimited = await checkRateLimit(provider);
+    if (isLimited) {
+      console.warn(`[AI] Rate limit near for ${provider}, skipping to next provider`);
+      continue;
+    }
+
+    try {
+      const result = await callProvider(messages, { ...options, model });
+      result.language = options.language;
+      return result;
+    } catch (err) {
+      lastError = err;
+      const status = (err as { status?: number }).status ?? (err as { statusCode?: number }).statusCode;
+      const isTransient = status === 429 || status === 500 || status === 503 || status === 529;
+
+      if (isTransient || isAuthError(err) || isQuotaError(err)) {
+        console.warn(`[AI] ${provider}/${model} failed (status=${status}), trying next provider...`);
+        continue;
+      }
+      // Non-transient error — don't try other providers
+      throw err;
+    }
+  }
+
+  throw lastError ?? new AIProviderError("All providers failed", 503, "all", true);
 }
 
 // ---------------------------------------------------------------------------
@@ -457,16 +662,19 @@ async function callProvider(
 
 /**
  * Send a text message to the configured AI provider and get a response.
+ * Supports optional provider and language params for routing.
+ * Existing callers with no provider/language work exactly as before.
  */
 export async function aiChat(
   userMessage: string,
   options: AICallOptions = {},
   logContext?: AILogContext
 ): Promise<AICallResult> {
-  const result = await callProvider(
-    [{ role: "user", content: userMessage }],
-    options
-  );
+  // Use failover if provider or language is specified; otherwise keep original direct path
+  const useFailover = !!(options.provider || options.language);
+  const result = useFailover
+    ? await callProviderWithFailover([{ role: "user", content: userMessage }], options, false)
+    : await callProvider([{ role: "user", content: userMessage }], options);
 
   if (logContext) {
     await logAICall(logContext, result).catch((err) =>
@@ -478,8 +686,9 @@ export async function aiChat(
 }
 
 /**
- * Send a message with an image (base64) to Claude Vision.
- * Vision is only supported on Anthropic and Gemini — defaults to Anthropic.
+ * Send a message with an image (base64) to AI Vision.
+ * Supports language-based routing: Indic languages → Gemini, English → Claude.
+ * Vision is supported on Anthropic and Gemini. Explicit provider override available.
  */
 export async function aiVision(
   userMessage: string,
@@ -488,65 +697,104 @@ export async function aiVision(
   options: AICallOptions = {},
   logContext?: AILogContext
 ): Promise<AICallResult> {
-  const model = options.model ?? AI_MODELS.PRIMARY;
+  // Resolve the model based on provider/language routing (vision task = true)
+  const routedModel = resolveRoutedModel(options, true);
+  const model = routedModel;
   const provider = getProvider(model);
 
-  let result: AICallResult;
+  // Build vision-capable failover chain for retries
+  const visionModels = isIndicLanguage(options.language)
+    ? [AI_MODELS.GEMINI_PRO, AI_MODELS.PRIMARY] // Indic: Gemini first
+    : [AI_MODELS.PRIMARY, AI_MODELS.GEMINI_PRO]; // English: Claude first
 
-  if (provider === "gemini") {
-    // Gemini vision via new @google/genai SDK
-    const start = Date.now();
-    const client = getGemini();
+  // Ensure the routed model is first
+  const modelsToTry = [model, ...visionModels.filter((m) => m !== model)];
 
-    const isProModel = model.includes("-pro");
+  let lastError: unknown;
+  let result: AICallResult | undefined;
 
-    const response = await client.models.generateContent({
-      model,
-      contents: [
-        {
-          role: "user" as const,
-          parts: [
-            { inlineData: { mimeType: mediaType, data: imageBase64 } },
-            { text: userMessage },
+  for (const tryModel of modelsToTry) {
+    const tryProvider = getProvider(tryModel);
+
+    // Check rate limit
+    const isLimited = await checkRateLimit(tryProvider);
+    if (isLimited && tryModel !== modelsToTry[modelsToTry.length - 1]) {
+      console.warn(`[AI Vision] Rate limit near for ${tryProvider}, skipping to next`);
+      continue;
+    }
+
+    try {
+      await incrementRateCount(tryProvider);
+
+      if (tryProvider === "gemini") {
+        const start = Date.now();
+        const client = getGemini();
+        const isProModel = tryModel.includes("-pro");
+
+        const response = await client.models.generateContent({
+          model: tryModel,
+          contents: [
+            {
+              role: "user" as const,
+              parts: [
+                { inlineData: { mimeType: mediaType, data: imageBase64 } },
+                { text: userMessage },
+              ],
+            },
           ],
-        },
-      ],
-      config: {
-        systemInstruction: options.systemPrompt ?? undefined,
-        temperature: options.temperature ?? 0.3,
-        maxOutputTokens: options.maxTokens ?? 8192,
-        ...(isProModel ? { thinkingConfig: { thinkingBudget: 4096 } } : {}),
-      },
-    });
+          config: {
+            systemInstruction: options.systemPrompt ?? undefined,
+            temperature: options.temperature ?? 0.3,
+            maxOutputTokens: options.maxTokens ?? 8192,
+            ...(isProModel ? { thinkingConfig: { thinkingBudget: 4096 } } : {}),
+          },
+        });
 
-    const text = response.text ?? "";
-    const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
-    const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+        const text = response.text ?? "";
+        const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+        const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
 
-    result = {
-      content: text,
-      model,
-      inputTokens,
-      outputTokens,
-      costUsd: calculateCost(model, inputTokens, outputTokens),
-      durationMs: Date.now() - start,
-    };
-  } else {
-    // Default to Anthropic vision
-    const anthropicModel =
-      provider === "anthropic" ? model : AI_MODELS.PRIMARY;
-    const content: ContentBlockParam[] = [
-      {
-        type: "image",
-        source: { type: "base64", media_type: mediaType, data: imageBase64 },
-      },
-      { type: "text", text: userMessage },
-    ];
+        result = {
+          content: text,
+          model: tryModel,
+          provider: "gemini",
+          inputTokens,
+          outputTokens,
+          costUsd: calculateCost(tryModel, inputTokens, outputTokens),
+          durationMs: Date.now() - start,
+          language: options.language,
+        };
+      } else {
+        // Anthropic vision
+        const content: ContentBlockParam[] = [
+          {
+            type: "image",
+            source: { type: "base64", media_type: mediaType, data: imageBase64 },
+          },
+          { type: "text", text: userMessage },
+        ];
 
-    result = await callAnthropic(
-      [{ role: "user", content }],
-      { ...options, model: anthropicModel, maxTokens: options.maxTokens ?? 8192 }
-    );
+        result = await callAnthropic(
+          [{ role: "user", content }],
+          { ...options, model: tryModel, maxTokens: options.maxTokens ?? 8192 }
+        );
+        result.language = options.language;
+      }
+      break; // Success — exit retry loop
+    } catch (err) {
+      lastError = err;
+      const status = (err as { status?: number }).status;
+      const isTransient = status === 429 || status === 500 || status === 503;
+      if (isTransient || isAuthError(err) || isQuotaError(err)) {
+        console.warn(`[AI Vision] ${tryProvider}/${tryModel} failed, trying next...`);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (!result) {
+    throw lastError ?? new AIProviderError("All vision providers failed", 503, "all", true);
   }
 
   if (logContext) {
@@ -606,10 +854,12 @@ export async function aiPdfVision(
   const result: AICallResult = {
     content,
     model,
+    provider: "gemini",
     inputTokens,
     outputTokens,
     costUsd: calculateCost(model, inputTokens, outputTokens),
     durationMs: Date.now() - start,
+    language: options.language,
   };
 
   if (logContext) {
@@ -644,10 +894,14 @@ async function logAICall(context: AILogContext, result: AICallResult): Promise<v
     aiModelUsed: result.model,
     aiTokensUsed: result.inputTokens + result.outputTokens,
     processingTimeMs: result.durationMs,
+    aiProvider: result.provider ?? null,
+    language: result.language ?? null,
     outputData: {
       inputTokens: result.inputTokens,
       outputTokens: result.outputTokens,
       costUsd: result.costUsd,
+      provider: result.provider,
+      language: result.language,
     },
   });
 }

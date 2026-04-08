@@ -14,6 +14,11 @@ import {
   UserCheck,
   Layers,
   Settings,
+  Activity,
+  CheckSquare,
+  Cpu,
+  Database,
+  HelpCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,11 +49,11 @@ const teacherActions = [
 ];
 
 const adminActions = [
-  { href: "/scrape-jobs", label: "Scrape Pipeline", icon: Upload, color: "text-primary" },
-  { href: "/curriculum", label: "Curriculum Explorer", icon: Layers, color: "text-violet-600" },
-  { href: "/question-papers", label: "Question Papers", icon: ClipboardList, color: "text-orange-600" },
-  { href: "/dashboard/syllabus", label: "Browse Syllabus", icon: BookOpen, color: "text-blue-600" },
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, color: "text-emerald-600" },
+  { href: "/admin/pipeline", label: "Pipeline Overview", icon: Activity, color: "text-primary" },
+  { href: "/scrape-jobs", label: "Scrape Pipeline", icon: Upload, color: "text-violet-600" },
+  { href: "/admin/content-review", label: "Content Review", icon: CheckSquare, color: "text-orange-600" },
+  { href: "/admin/ai-providers", label: "AI Providers", icon: Cpu, color: "text-blue-600" },
+  { href: "/curriculum", label: "Curriculum Explorer", icon: Layers, color: "text-emerald-600" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, color: "text-muted-foreground" },
 ];
 
@@ -213,33 +218,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       )}
 
       {/* Admin-specific section */}
-      {userRole === "admin" && (
-        <div className="space-y-3">
-          <h2 className="text-lg font-semibold text-foreground">Administration</h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="font-medium text-sm">Content Pipeline</h3>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Manage scraping jobs, review content, and monitor the pipeline.
-                </p>
-                <Button asChild variant="outline" size="sm" className="mt-3">
-                  <Link href="/scrape-jobs">Manage Jobs</Link>
-                </Button>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <h3 className="font-medium text-sm">Content Review</h3>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Review and approve pending AI-generated and user-uploaded content.
-                </p>
-                <Badge variant="outline" className="mt-3 text-xs">Coming soon</Badge>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      )}
+      {userRole === "admin" && <AdminSection />}
 
       {/* Parent-specific section */}
       {userRole === "parent" && (
@@ -282,5 +261,85 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
 
       <BoardPicker open={pickerOpen} onOpenChange={setPickerOpen} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Admin Section with live pipeline stats
+// ---------------------------------------------------------------------------
+
+interface PipelineStats {
+  totals: { contentItems: number; publishedItems: number; questions: number };
+  aiUsageToday: Array<{ total_cost: number }>;
+}
+
+function AdminSection() {
+  const [stats, setStats] = useState<PipelineStats | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/pipeline-stats")
+      .then((r) => r.json())
+      .then((json) => { if (json.success) setStats(json.data); })
+      .catch(() => {});
+  }, []);
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg font-semibold text-foreground">Administration</h2>
+
+      {/* Stats row */}
+      {stats && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <MiniStat icon={<FileText className="h-4 w-4 text-violet-600" />} label="Content Items" value={stats.totals.contentItems} sub={`${stats.totals.publishedItems} published`} />
+          <MiniStat icon={<HelpCircle className="h-4 w-4 text-blue-600" />} label="Questions" value={stats.totals.questions} sub="all types" />
+          <MiniStat icon={<Database className="h-4 w-4 text-emerald-600" />} label="AI Cost Today" value={`$${stats.aiUsageToday.reduce((s, r) => s + Number(r.total_cost), 0).toFixed(2)}`} sub="last 24h" />
+          <MiniStat icon={<Activity className="h-4 w-4 text-amber-600" />} label="Published" value={stats.totals.publishedItems} sub="live content" />
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="font-medium text-sm">Content Pipeline</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Manage scraping jobs, DIKSHA ingestion, NCERT downloads, and AI content generation.
+            </p>
+            <div className="flex gap-2 mt-3">
+              <Button asChild variant="outline" size="sm">
+                <Link href="/admin/pipeline">Overview</Link>
+              </Button>
+              <Button asChild variant="outline" size="sm">
+                <Link href="/scrape-jobs">Manage Jobs</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="font-medium text-sm">Content Review</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Review and approve pending AI-generated and scraped content.
+            </p>
+            <Button asChild variant="outline" size="sm" className="mt-3">
+              <Link href="/admin/content-review">Review Queue</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string | number; sub: string }) {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3 p-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">{icon}</div>
+        <div>
+          <p className="text-lg font-bold tabular-nums">{value}</p>
+          <p className="text-[10px] text-muted-foreground">{label} · {sub}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

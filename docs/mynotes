@@ -1,0 +1,82 @@
+
+SARVAM_API_KEY=sk_sr1lzn74_F0nwLToT0YlxWQSPawlb0Jj3
+
+
+Summary of All Changes
+Phase 1: Local PDF Storage
+src/lib/scraper/pdf-storage.ts (NEW) — savePdfLocally() saves PDFs to data/pdfs/{board}/{grade}/, saveExtractedText() saves .txt alongside, readExtractedText() reads back for verification
+CBSE scraper updated — after downloading each PDF, saves it locally before AI parsing
+.gitignore — added data/pdfs/
+Phase 2: Content-to-PDF Provenance Mapping
+src/lib/scraper/syllabus-inserter.ts rewritten — accepts SourceContext with pdfPath, textPath, pdfUrl, aiModel, scrapeJobId, boardCode. Writes all this to subjects.metadata and chapters.metadata JSONB
+Sets reviewStatus: "pending" on every newly scraped subject
+Returns subjectId for downstream tracking
+Explorer API updated — reads provenance directly from subjects.metadata instead of querying pipeline logs (faster, more reliable)
+Phase 3: Sanity Check — Side-by-Side Verification
+/curriculum/verify/[subjectId] page — Full-screen two-panel layout:
+Left panel: Raw extracted PDF text (from local .txt file) in monospace with search highlighting
+Right panel: Parsed content tree (chapters → topics) — click any chapter/topic title to highlight it in the raw text
+Source info bar: AI model, parse date, original PDF link, local path, job ID
+Review actions: Approve (green), Reject (red), Flag for Re-parse (orange) — updates reviewStatus in metadata
+Search input highlights matching text in both panels
+GET /api/admin/curriculum-explorer/[subjectId]/verify — Returns raw text + parsed content + metadata
+POST /api/admin/curriculum-explorer/[subjectId]/review — Approve/reject/flag with reviewer tracking
+Phase 4: Inline Scrape from Explorer
+Tree View — When a grade is expanded and incomplete, shows a "Scrape Class X" button inline that triggers POST /api/admin/scrape-jobs with board+grade pre-filled
+Grid View — Each subject card with content shows "Verify parsed content" link
+Both views link to the verify page per subject
+Phase 5: Student Content Pipeline Prep
+All scraped content gets reviewStatus: "pending" in metadata
+Admin approval flips to "approved" — this is what students will see
+Full provenance chain: PDF URL → local PDF path → extracted text path → AI model → scrape job ID → parsed subject/chapters/topics
+Every entity traceable back to its source PDF
+
+Complete Content Flow
+Admin triggers scrape → CBSE page fetched → PDFs found
+→ PDF downloaded + saved locally (data/pdfs/CBSE/10/Arabic.pdf)
+→ Text extracted + saved (data/pdfs/CBSE/10/Arabic.txt)
+→ AI parses text → Zod validates → DB insert with provenance metadata
+→ Admin opens Curriculum Explorer → sees subjects with completion %
+→ Clicks "Verify" → side-by-side comparison
+→ Clicks chapter title → highlights in raw text for accuracy check
+→ Approves → reviewStatus = "approved" → ready for student Learn module
+
+
+
+
+
+
+
+Using the same scraping workflow done for Syllabus,create a scraping pipeline for Sample Questions (eg:-https://cbseacademic.nic.in/SQP_CLASSX_2025-26.html),question bank (eg:https://cbseacademic.nic.in/qbclass10.html) ,to create question bank for exam generation,We need to start with CBSE and move to other boards later.Apart from the scraping,app should enable teachers,admin to feed in questions and answers,students should be able to feed questions and answers. The feeding of questions & answers should be from multiple sources like : key in, parse an image, pdf, excel or csv or other formats like word. Q & A should be user linked .Q & A should be in following the board exam patterns .Students should be able to share their q&a with others to whom they want to share it (they will share notes & other contents when we later implement the Learning module like the one in ExamFOrge)
+
+
+Applied to Questions & Answers Scraping Pipeline
+ 
+ Need to appy the same to Syllabus too
+
+Parse Error Tracking System
+Scraper changes (cbse-question-scraper.ts)
+Validation recovery now logs a "validation_recovery" pipeline entry with:
+filename, url, model — which document and which AI model
+originalError — the Zod validation error (first 500 chars)
+rawResponsePreview — what the AI actually returned (first 1000 chars)
+recoveredQuestions / droppedQuestions / totalRawQuestions — recovery stats
+Full failures now log to "validation" with:
+Same document fields plus recoveryError (why recovery also failed)
+costUsd, inputTokens, outputTokens — money spent on the failed attempt
+New API endpoints
+GET /api/admin/parse-errors — lists all validation failures/recoveries with filters (jobId, status), stats (total, failed, recovered, recovery rate, wasted cost), and top error patterns
+POST /api/admin/parse-errors/[id]/retry — re-downloads and re-parses a single failed PDF using the latest code/models, updates the log entry on success
+New admin UI
+"Parse Errors" tab on the Scrape Pipeline page (between AI Usage and Scraped Content)
+Stats cards: Failed count, Recovered count, Recovery rate %, Wasted cost
+Common error patterns: Shows top 10 most frequent errors with counts
+Per-document list with color coding:
+🔴 Red = fully failed
+🟡 Yellow = recovered (partial success)
+🟢 Green = retried successfully
+Expandable details: validation error, recovery error, raw AI response preview, source URL, cost/tokens
+
+
+
+The Learn View still showing Blank Topic. Change the workflow like this. Change the Learn menu to My Learning (this is the dashboard for the student, now it's shwoing subjects ,but we need to work more on this page later .Now add the  lasest chapter the student is learning with completeness of the chapter & also the subject). When Start Learning is clicked it should redirect to the Study page with the subject selected automatically based on the Subject selection in My Learning page. WHen student select Open in Learn View or Learn View (change title   to  Playground ) it should show the content there with the meta information . This is the students Playground(change title as Playground ). Here we need to track the learning of the student on the chapter or topic. Features needed here : 1 ) Student should be able to highlight and mark. We need to add 3 color options;1 - Red  for tough, 2 Orange for almost ok,3- green understood. We need the same for the whole page for the chapter to track the understanding for the student. 2)Student can add his own notes & observations .3)An inline Excercise or Exam option to do a self test.4) show old questions with answers from previous years(use our Question Bank) .5 ) Add a  ASK AI popup (inline on selection and pinned ) . Use the same one used in ExamForge. We used 2 ASK AI's there,one for  the context and another a general one.Do the context one now with session management and using all the Ai Providers) . Students can also add youtube video links which he can view in the Playground itself.  Later in the next phase we will be adding feature for Creators ( independent tutors ) to create content with their own pages .student can search from those vidoes and embed in his Playground . This is a future feature only. All These things need to be saved to db for the student and should be visible to the student when he opens the same chapter again. We can also show the progress of the student in the chapter based on his highlights and notes and self test results. We can also show the progress in the subject level based on the chapters completed and understood. This will be a long term feature but we need to start with the basic structure for this in the database and the UI.

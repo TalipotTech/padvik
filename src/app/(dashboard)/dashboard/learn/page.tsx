@@ -1,7 +1,7 @@
 import { LearnPage } from "./_components/learn-page";
 
 export const metadata = {
-  title: "Learn | Padvik",
+  title: "My Learning | Padvik",
 };
 
 export default function Learn() {

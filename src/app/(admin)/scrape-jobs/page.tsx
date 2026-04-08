@@ -19,6 +19,8 @@ import { QueueDashboard } from "./_components/queue-dashboard";
 import { AIUsagePanel } from "./_components/ai-usage-panel";
 import { ParseErrorsPanel } from "./_components/parse-errors-panel";
 import { ScrapedContentPanel } from "./_components/scraped-content-panel";
+import { PdfBrowserPanel } from "./_components/pdf-browser-panel";
+import { DownloadedContentPanel } from "./_components/downloaded-content-panel";
 import Link from "next/link";
 import {
   Globe,
@@ -74,6 +76,12 @@ const BOARDS = [
   { code: "CBSE", label: "CBSE", url: "cbseacademic.nic.in" },
   { code: "ICSE", label: "ICSE", url: "cisce.org" },
   { code: "KL_SCERT", label: "Kerala SCERT", url: "scert.kerala.gov.in" },
+  { code: "KA_KSEAB", label: "Karnataka", url: "ktbs.kar.nic.in" },
+  { code: "TN_DGE", label: "Tamil Nadu", url: "textbooksonline.tn.nic.in" },
+  { code: "MH_MSBSHSE", label: "Maharashtra", url: "ebalbharati.in" },
+  { code: "AP_BSEAP", label: "AP / Telangana", url: "scert.ap.gov.in" },
+  { code: "NCERT", label: "NCERT Textbooks", url: "ncert.nic.in" },
+  { code: "DIKSHA", label: "DIKSHA (All Boards)", url: "diksha.gov.in" },
 ] as const;
 
 const AI_PROVIDERS = [
@@ -83,12 +91,40 @@ const AI_PROVIDERS = [
   { value: "mistral", label: "Mistral AI", description: "Mistral Large — strong multilingual" },
   { value: "openai", label: "OpenAI GPT-4o", description: "GPT-4o — reliable general purpose" },
   { value: "perplexity", label: "Perplexity Sonar", description: "Sonar — web-grounded search" },
+  { value: "sarvam", label: "Sarvam Vision", description: "Sarvam AI — Indic OCR specialist (Hindi, Tamil, Malayalam, Telugu)" },
 ] as const;
 
 const BOARD_LABELS: Record<string, string> = {
   CBSE: "CBSE",
   ICSE: "ICSE",
   KL_SCERT: "Kerala SCERT",
+  KA_KSEAB: "Karnataka",
+  TN_DGE: "Tamil Nadu",
+  MH_MSBSHSE: "Maharashtra",
+  AP_BSEAP: "AP/Telangana",
+  TS_BSETS: "Telangana",
+  NCERT: "NCERT",
+  DIKSHA: "DIKSHA",
+};
+
+// NCERT subjects available per grade range (derived from NCERT_BOOK_CATALOG)
+const NCERT_SUBJECTS: Record<string, string[]> = {
+  "all": ["Mathematics", "Science", "English", "Social Science", "History", "Geography", "Economics", "Political Science", "Physics", "Chemistry", "Biology", "Environmental Studies"],
+  "1": ["Mathematics", "English", "Environmental Studies"],
+  "2": ["Mathematics", "English", "Environmental Studies"],
+  "3": ["Mathematics", "English", "Environmental Studies"],
+  "4": ["Mathematics", "English", "Environmental Studies"],
+  "5": ["Mathematics", "English", "Environmental Studies"],
+  "6": ["Mathematics", "Science", "Social Science", "English"],
+  "7": ["Mathematics", "Science", "Social Science", "History", "Geography", "English"],
+  "8": ["Mathematics", "Science", "Social Science", "History", "Geography", "English"],
+  "9": ["Mathematics", "Science", "History", "Geography", "Economics", "Political Science", "English"],
+  "10": ["Mathematics", "Science", "History", "Geography", "Economics", "Political Science", "English"],
+  "8,9,10": ["Mathematics", "Science", "History", "Geography", "Economics", "Political Science", "English"],
+  "11": ["Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Accountancy", "Political Science", "History", "Sociology", "English"],
+  "12": ["Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Accountancy", "Political Science", "History", "Sociology", "English"],
+  "11,12": ["Mathematics", "Physics", "Chemistry", "Biology", "Economics", "Accountancy", "Political Science", "History", "Sociology", "English"],
+  "9,10": ["Mathematics", "Science", "History", "Geography", "Economics", "Political Science", "English"],
 };
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -98,6 +134,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   mistral: "Mistral AI",
   openai: "OpenAI GPT-4o",
   perplexity: "Perplexity Sonar",
+  sarvam: "Sarvam Vision",
 };
 
 // ---------------------------------------------------------------------------
@@ -114,6 +151,21 @@ export default function ScrapeJobsPage() {
   const [retrySkipped, setRetrySkipped] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState("auto");
   const [jobTypeFilter, setJobTypeFilter] = useState("all");
+
+  // New pipeline job fields
+  const [gradeStart, setGradeStart] = useState("1");
+  const [gradeEnd, setGradeEnd] = useState("12");
+  const [medium, setMedium] = useState("both");
+  const [ncertLanguages, setNcertLanguages] = useState<string[]>(["en"]);
+  const [ncertSubjects, setNcertSubjects] = useState<string[]>([]);
+  const [maxChapters, setMaxChapters] = useState("50");
+  const [downloadOnly, setDownloadOnly] = useState(false);
+  const [dryRun, setDryRun] = useState(false);
+  const [dryRunResult, setDryRunResult] = useState<Record<string, unknown> | null>(null);
+  const [genNotes, setGenNotes] = useState(true);
+  const [genFlashcards, setGenFlashcards] = useState(true);
+  const [genMcqs, setGenMcqs] = useState(true);
+  const [batchSize, setBatchSize] = useState("50");
 
   // Auto-sync job type with filter
   const handleJobTypeFilterChange = (filter: string) => {
@@ -167,28 +219,101 @@ export default function ScrapeJobsPage() {
     return [parseInt(selectedGrade, 10)];
   }
 
+  function getEndpointAndBody(): { url: string; body: Record<string, unknown> } {
+    const grades = parseGrades();
+
+    switch (selectedJobType) {
+      case "diksha_ingest":
+        return {
+          url: "/api/admin/diksha/ingest",
+          body: {
+            boardCode: selectedBoard === "DIKSHA" ? "CBSE" : selectedBoard,
+            gradeStart: parseInt(gradeStart, 10),
+            gradeEnd: parseInt(gradeEnd, 10),
+          },
+        };
+      case "ncert_download":
+        return {
+          url: "/api/admin/ncert/download",
+          body: {
+            grades,
+            subjects: ncertSubjects.length > 0 ? ncertSubjects : undefined,
+            languages: ncertLanguages.length > 0 ? ncertLanguages : undefined,
+            aiProvider: selectedProvider,
+            maxChapters: parseInt(maxChapters, 10) || 50,
+            downloadOnly,
+          },
+        };
+      case "kerala_scrape":
+        return {
+          url: "/api/admin/kerala/scrape",
+          body: {
+            classStart: parseInt(gradeStart, 10),
+            classEnd: parseInt(gradeEnd, 10),
+            medium,
+            aiProvider: selectedProvider,
+            downloadOnly,
+          },
+        };
+      case "state_board_scrape":
+        return {
+          url: "/api/admin/state-boards/scrape",
+          body: {
+            boardCode: selectedBoard,
+            grades,
+            medium: medium !== "both" ? medium : undefined,
+            aiProvider: selectedProvider,
+            maxPdfs: parseInt(maxPdfs, 10) || 150,
+            downloadOnly,
+          },
+        };
+      case "content_generate":
+        return {
+          url: "/api/admin/content/generate",
+          body: {
+            notes: genNotes,
+            flashcards: genFlashcards,
+            mcqs: genMcqs,
+            batchSize: parseInt(batchSize, 10) || 50,
+            boardCodes: selectedBoard !== "CBSE" ? [selectedBoard] : undefined,
+            grades,
+            dryRun,
+          },
+        };
+      default:
+        return {
+          url: "/api/admin/scrape-jobs",
+          body: {
+            boardCode: selectedBoard,
+            jobType: selectedJobType,
+            grades,
+            maxPdfs: parseInt(maxPdfs, 10) || 150,
+            retrySkipped: retrySkipped || undefined,
+            aiProvider: selectedProvider,
+          },
+        };
+    }
+  }
+
   async function triggerScrape() {
     setTriggering(true);
     setError(null);
+    setDryRunResult(null);
 
-    const grades = parseGrades();
+    const { url, body } = getEndpointAndBody();
 
     try {
-      const res = await fetch("/api/admin/scrape-jobs", {
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          boardCode: selectedBoard,
-          jobType: selectedJobType,
-          grades,
-          maxPdfs: parseInt(maxPdfs, 10) || 150,
-          retrySkipped: retrySkipped || undefined,
-          aiProvider: selectedProvider,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!data.success) {
-        setError(data.error?.message ?? "Failed to trigger scrape");
+        setError(data.error?.message ?? "Failed to trigger job");
+      } else if (data.data?.dryRun) {
+        // Content generation dry run — show results inline
+        setDryRunResult(data.data);
       } else {
         const queueJobId = data.data?.queueJobId ?? data.data?.metadata?.queueJobId;
         if (queueJobId) {
@@ -303,6 +428,10 @@ export default function ScrapeJobsPage() {
           { value: "syllabus", label: "Syllabus" },
           { value: "question_paper", label: "Questions" },
           { value: "textbook", label: "Textbooks" },
+          { value: "ncert_download", label: "NCERT" },
+          { value: "diksha_ingest", label: "DIKSHA" },
+          { value: "kerala_scrape", label: "Kerala" },
+          { value: "content_generate", label: "AI Gen" },
         ].map((t) => (
           <button
             key={t.value}
@@ -331,6 +460,8 @@ export default function ScrapeJobsPage() {
           <TabsTrigger value="queues">Queue Status</TabsTrigger>
           <TabsTrigger value="ai-usage">AI Usage</TabsTrigger>
           <TabsTrigger value="parse-errors">Parse Errors</TabsTrigger>
+          <TabsTrigger value="downloaded">Downloaded Content</TabsTrigger>
+          <TabsTrigger value="pdfs">Processed PDFs</TabsTrigger>
           <TabsTrigger value="content">Scraped Content</TabsTrigger>
         </TabsList>
 
@@ -364,75 +495,216 @@ export default function ScrapeJobsPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="jobType">Job Type</Label>
-                  <Select value={selectedJobType} onValueChange={setSelectedJobType}>
-                    <SelectTrigger id="jobType" className="w-[180px]">
+                  <Select value={selectedJobType} onValueChange={(v) => { setSelectedJobType(v); setDryRunResult(null); }}>
+                    <SelectTrigger id="jobType" className="w-[200px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="syllabus">Syllabus</SelectItem>
+                      <SelectItem value="syllabus">Syllabus (PDF parse)</SelectItem>
                       <SelectItem value="question_paper">Question Papers</SelectItem>
-                      <SelectItem value="textbook">Textbook</SelectItem>
+                      <SelectItem value="textbook">Textbook (PDF)</SelectItem>
+                      <SelectItem value="ncert_download">NCERT Download</SelectItem>
+                      <SelectItem value="diksha_ingest">DIKSHA Ingest</SelectItem>
+                      <SelectItem value="kerala_scrape">Kerala Textbooks</SelectItem>
+                      <SelectItem value="state_board_scrape">State Board Scrape</SelectItem>
+                      <SelectItem value="content_generate">AI Content Generator</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="grade">Grade</Label>
-                  <Select value={selectedGrade} onValueChange={setSelectedGrade}>
-                    <SelectTrigger id="grade" className="w-[140px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All grades</SelectItem>
-                      <SelectItem value="9,10">Classes 9-10 (Secondary)</SelectItem>
-                      <SelectItem value="11,12">Classes 11-12 (Sr. Secondary)</SelectItem>
-                      {Array.from({ length: 12 }, (_, i) => (
-                        <SelectItem key={i + 1} value={String(i + 1)}>
-                          Class {i + 1}
-                        </SelectItem>
+                {/* Dynamic fields based on job type */}
+                {["syllabus", "question_paper", "textbook", "state_board_scrape"].includes(selectedJobType) && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="grade">Grade</Label>
+                      <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+                        <SelectTrigger id="grade" className="w-[140px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All grades</SelectItem>
+                          <SelectItem value="9,10">Classes 9-10</SelectItem>
+                          <SelectItem value="11,12">Classes 11-12</SelectItem>
+                          {Array.from({ length: 12 }, (_, i) => (
+                            <SelectItem key={i + 1} value={String(i + 1)}>Class {i + 1}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="maxPdfs">Max PDFs</Label>
+                      <Input id="maxPdfs" type="number" min={1} max={500} value={maxPdfs} onChange={(e) => setMaxPdfs(e.target.value)} className="w-[100px]" />
+                    </div>
+                  </>
+                )}
+
+                {["diksha_ingest", "kerala_scrape"].includes(selectedJobType) && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Class Start</Label>
+                      <Input type="number" min={1} max={12} value={gradeStart} onChange={(e) => setGradeStart(e.target.value)} className="w-[80px]" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Class End</Label>
+                      <Input type="number" min={1} max={12} value={gradeEnd} onChange={(e) => setGradeEnd(e.target.value)} className="w-[80px]" />
+                    </div>
+                  </>
+                )}
+
+                {selectedJobType === "kerala_scrape" && (
+                  <div className="space-y-2">
+                    <Label>Medium</Label>
+                    <Select value={medium} onValueChange={setMedium}>
+                      <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="both">Both</SelectItem>
+                        <SelectItem value="english">English</SelectItem>
+                        <SelectItem value="malayalam">Malayalam</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {selectedJobType === "ncert_download" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="grade">Grade</Label>
+                      <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+                        <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All grades</SelectItem>
+                          <SelectItem value="8,9,10">Classes 8-10</SelectItem>
+                          <SelectItem value="11,12">Classes 11-12</SelectItem>
+                          {Array.from({ length: 12 }, (_, i) => (
+                            <SelectItem key={i + 1} value={String(i + 1)}>Class {i + 1}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Max Chapters</Label>
+                      <Input type="number" min={1} max={5000} value={maxChapters} onChange={(e) => setMaxChapters(e.target.value)} className="w-[100px]" />
+                    </div>
+                    <div className="flex items-center gap-3 self-end pb-2">
+                      {["en", "hi"].map((lang) => (
+                        <label key={lang} className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="checkbox" checked={ncertLanguages.includes(lang)} onChange={(e) => {
+                            setNcertLanguages((prev) => e.target.checked ? [...prev, lang] : prev.filter((l) => l !== lang));
+                          }} className="h-4 w-4 rounded border-gray-300" />
+                          <span className="text-xs">{lang === "en" ? "English" : "Hindi"}</span>
+                        </label>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                    </div>
+                  </>
+                )}
 
-                <div className="space-y-2">
-                  <Label htmlFor="maxPdfs">Max PDFs</Label>
-                  <Input
-                    id="maxPdfs"
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={maxPdfs}
-                    onChange={(e) => setMaxPdfs(e.target.value)}
-                    className="w-[100px]"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="aiProvider">AI Provider</Label>
-                  <Select value={selectedProvider} onValueChange={setSelectedProvider}>
-                    <SelectTrigger id="aiProvider" className="w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AI_PROVIDERS.map((p) => (
-                        <SelectItem key={p.value} value={p.value}>
-                          {p.label}
-                        </SelectItem>
+                {/* NCERT Subject selector — shown below the main row */}
+                {selectedJobType === "ncert_download" && (
+                  <div className="w-full pt-2">
+                    <Label className="text-xs mb-1.5 block">
+                      Subjects {ncertSubjects.length > 0 ? `(${ncertSubjects.length} selected)` : "(all if none selected)"}
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {(NCERT_SUBJECTS[selectedGrade] ?? NCERT_SUBJECTS["all"]).map((subj) => (
+                        <label
+                          key={subj}
+                          className={`flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${
+                            ncertSubjects.includes(subj)
+                              ? "border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                              : "border-border bg-background text-muted-foreground hover:bg-muted"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={ncertSubjects.includes(subj)}
+                            onChange={(e) => {
+                              setNcertSubjects((prev) =>
+                                e.target.checked ? [...prev, subj] : prev.filter((s) => s !== subj)
+                              );
+                            }}
+                            className="sr-only"
+                          />
+                          {subj}
+                        </label>
                       ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                      {ncertSubjects.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setNcertSubjects([])}
+                          className="rounded-md px-2 py-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                        >
+                          Clear all
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
 
-                <label className="flex items-center gap-2 cursor-pointer self-end pb-2">
-                  <input
-                    type="checkbox"
-                    checked={retrySkipped}
-                    onChange={(e) => setRetrySkipped(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300"
-                  />
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">Retry skipped only</span>
-                </label>
+                {selectedJobType === "content_generate" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="grade">Grade</Label>
+                      <Select value={selectedGrade} onValueChange={setSelectedGrade}>
+                        <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All grades</SelectItem>
+                          <SelectItem value="10">Class 10</SelectItem>
+                          <SelectItem value="12">Class 12</SelectItem>
+                          <SelectItem value="9,10">Classes 9-10</SelectItem>
+                          <SelectItem value="11,12">Classes 11-12</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Batch Size</Label>
+                      <Input type="number" min={1} max={500} value={batchSize} onChange={(e) => setBatchSize(e.target.value)} className="w-[80px]" />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 self-end pb-2">
+                      {[
+                        { label: "Notes", checked: genNotes, set: setGenNotes },
+                        { label: "Flashcards", checked: genFlashcards, set: setGenFlashcards },
+                        { label: "MCQs", checked: genMcqs, set: setGenMcqs },
+                      ].map((opt) => (
+                        <label key={opt.label} className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="checkbox" checked={opt.checked} onChange={(e) => opt.set(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                          <span className="text-xs">{opt.label}</span>
+                        </label>
+                      ))}
+                      <label className="flex items-center gap-1.5 cursor-pointer ml-2">
+                        <input type="checkbox" checked={dryRun} onChange={(e) => setDryRun(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                        <span className="text-xs font-medium text-amber-600">Dry Run (cost estimate)</span>
+                      </label>
+                    </div>
+                  </>
+                )}
+
+                {["ncert_download", "kerala_scrape", "state_board_scrape"].includes(selectedJobType) && (
+                  <label className="flex items-center gap-2 cursor-pointer self-end pb-2">
+                    <input type="checkbox" checked={downloadOnly} onChange={(e) => setDownloadOnly(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">Download only (skip AI)</span>
+                  </label>
+                )}
+
+                {!["diksha_ingest", "ncert_download", "kerala_scrape", "content_generate"].includes(selectedJobType) && (
+                  <div className="space-y-2">
+                    <Label htmlFor="aiProvider">AI Provider</Label>
+                    <Select value={selectedProvider} onValueChange={setSelectedProvider}>
+                      <SelectTrigger id="aiProvider" className="w-[200px]"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {AI_PROVIDERS.map((p) => (
+                          <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {["syllabus", "question_paper", "textbook"].includes(selectedJobType) && (
+                  <label className="flex items-center gap-2 cursor-pointer self-end pb-2">
+                    <input type="checkbox" checked={retrySkipped} onChange={(e) => setRetrySkipped(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">Retry skipped only</span>
+                  </label>
+                )}
 
                 <Button onClick={triggerScrape} disabled={triggering}>
                   {triggering ? (
@@ -490,6 +762,38 @@ export default function ScrapeJobsPage() {
                 <div className="mt-3 flex items-start gap-2 text-sm">
                   <AlertCircle className="size-4 mt-0.5 shrink-0 text-amber-500" />
                   <span className="text-xs">{error}</span>
+                </div>
+              )}
+
+              {/* Dry run result for content generation */}
+              {dryRunResult && (
+                <div className="mt-4 rounded-lg border bg-amber-50 p-4 dark:bg-amber-950/20">
+                  <div className="mb-2 text-sm font-medium text-amber-800 dark:text-amber-200">
+                    Content Generation Estimate (Dry Run)
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                    <div>
+                      <span className="text-muted-foreground">Topics with gaps:</span>
+                      <span className="ml-1 font-bold">{(dryRunResult.topicsWithGaps as number) ?? 0}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Estimated cost:</span>
+                      <span className="ml-1 font-bold text-amber-700 dark:text-amber-300">${(dryRunResult.estimatedCostUsd as number)?.toFixed(4) ?? "?"}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Notes:</span>
+                      <span className="ml-1 font-bold">{((dryRunResult.contentToGenerate as Record<string, number>)?.notes) ?? 0}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">MCQs:</span>
+                      <span className="ml-1 font-bold">{((dryRunResult.contentToGenerate as Record<string, number>)?.mcqs) ?? 0}</span>
+                    </div>
+                  </div>
+                  <div className="mt-2">
+                    <Button size="sm" variant="default" onClick={() => { setDryRun(false); triggerScrape(); }}>
+                      Confirm — Generate Content
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -592,7 +896,17 @@ export default function ScrapeJobsPage() {
           <ParseErrorsPanel jobTypeFilter={jobTypeFilter} />
         </TabsContent>
 
-        {/* ============== TAB 5: Scraped Content ============== */}
+        {/* ============== TAB 5: Downloaded Content ============== */}
+        <TabsContent value="downloaded">
+          <DownloadedContentPanel />
+        </TabsContent>
+
+        {/* ============== TAB 6: Processed PDFs ============== */}
+        <TabsContent value="pdfs">
+          <PdfBrowserPanel />
+        </TabsContent>
+
+        {/* ============== TAB 6: Scraped Content ============== */}
         <TabsContent value="content" className="space-y-4">
           <div className="flex justify-end">
             <Link href="/curriculum">
@@ -827,7 +1141,15 @@ function JobCard({
 function inferBoard(sourceUrl: string): string {
   if (sourceUrl.includes("cbse") || sourceUrl.includes("CBSE")) return "CBSE";
   if (sourceUrl.includes("cisce") || sourceUrl.includes("ICSE")) return "ICSE";
-  if (sourceUrl.includes("scert.kerala") || sourceUrl.includes("KL_SCERT")) return "Kerala";
+  if (sourceUrl.includes("scert.kerala") || sourceUrl.includes("KL_SCERT") || sourceUrl.includes("kerala-scert://")) return "Kerala";
+  if (sourceUrl.includes("ktbs.kar") || sourceUrl.includes("KA_KSEAB")) return "Karnataka";
+  if (sourceUrl.includes("tn.nic") || sourceUrl.includes("TN_DGE")) return "Tamil Nadu";
+  if (sourceUrl.includes("balbharati") || sourceUrl.includes("MH_MSBSHSE")) return "Maharashtra";
+  if (sourceUrl.includes("ap.gov") || sourceUrl.includes("AP_BSEAP") || sourceUrl.includes("telangana")) return "AP/TS";
+  if (sourceUrl.includes("ncert://") || sourceUrl.includes("ncert.nic")) return "NCERT";
+  if (sourceUrl.includes("diksha://") || sourceUrl.includes("diksha.gov")) return "DIKSHA";
+  if (sourceUrl.includes("content-gen://")) return "AI Gen";
+  if (sourceUrl.includes("state-board://")) return sourceUrl.split("/")[2] ?? "State Board";
   return "Unknown";
 }
 

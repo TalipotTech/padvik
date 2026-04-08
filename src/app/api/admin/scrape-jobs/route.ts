@@ -10,7 +10,7 @@ const BOARD_SOURCE_URLS: Record<string, Record<string, string>> = {
   CBSE: {
     syllabus: "https://cbseacademic.nic.in/curriculum_2026.html",
     question_paper: "https://cbseacademic.nic.in/SQP_CLASSX_2025-26.html",
-    textbook: "https://cbseacademic.nic.in",
+    textbook: "https://ncert.nic.in/textbook.php",
   },
   ICSE: {
     syllabus: "https://www.cisce.org/regulations-syllabi",
@@ -19,6 +19,17 @@ const BOARD_SOURCE_URLS: Record<string, Record<string, string>> = {
     syllabus: "https://scert.kerala.gov.in/curriculum",
   },
 };
+
+/**
+ * CBSE question papers are only available for Class X and XII.
+ * Class IX and XI do NOT have official SQPs on cbseacademic.nic.in.
+ */
+function getCbseQuestionPaperUrl(grades?: number[]): string {
+  if (!grades || grades.length === 0) return "https://cbseacademic.nic.in/SQP_CLASSX_2025-26.html";
+  const grade = grades[0];
+  if (grade === 12 || grade === 11) return "https://cbseacademic.nic.in/SQP_CLASSXII_2025-26.html";
+  return "https://cbseacademic.nic.in/SQP_CLASSX_2025-26.html"; // Default to Class X
+}
 
 const SUPPORTED_BOARDS = Object.keys(BOARD_SOURCE_URLS);
 
@@ -51,7 +62,7 @@ const createJobSchema = z.object({
   jobType: z.enum(["syllabus", "question_paper", "textbook"]),
   grades: z.array(z.number().int().min(1).max(12)).optional(),
   maxPdfs: z.number().int().min(1).max(500).optional(),
-  aiProvider: z.enum(["anthropic", "gemini", "mistral", "openai", "perplexity", "auto"]).optional(),
+  aiProvider: z.enum(["anthropic", "gemini", "mistral", "openai", "perplexity", "sarvam", "auto"]).optional(),
   retrySkipped: z.boolean().optional(),
 });
 
@@ -116,7 +127,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const sourceUrl = boardUrls[jobType];
+  // For CBSE question papers, use grade-specific URL
+  let sourceUrl = boardUrls[jobType];
+  if (boardCode === "CBSE" && jobType === "question_paper") {
+    // Only Class 10 and 12 have official SQPs
+    if (grades && grades.length > 0) {
+      const g = grades[0];
+      if (g === 9 || g === 11) {
+        // Class 9 and 11 don't have SQPs — use the next board exam class
+        const altGrade = g === 9 ? 10 : 12;
+        return NextResponse.json({
+          success: false,
+          error: {
+            code: "NO_SQP_AVAILABLE",
+            message: `CBSE does not publish Sample Question Papers for Class ${g}. Only Class 10 and 12 have SQPs. Try scraping Class ${altGrade} instead, which covers the same syllabus range. You can also try the Question Bank (qbclass${altGrade}.html).`,
+          },
+        }, { status: 400 });
+      }
+    }
+    sourceUrl = getCbseQuestionPaperUrl(grades);
+  }
 
   // --- Duplicate prevention ---
   // Check if there's already a queued or running job for the same board+jobType

@@ -37,7 +37,12 @@ export interface ScrapeProgress {
 
 const SCRAPER_CONFIG = { rateLimitMs: 3000 };
 
-function getScraperForJob(boardCode: string, jobType: string): BaseScraper {
+/**
+ * For "textbook" job type on CBSE, we route to the NCERT downloader
+ * instead of the syllabus scraper, since CBSE textbooks ARE NCERT books.
+ * Returns null if the job should be handled by a specialized pipeline.
+ */
+function getScraperForJob(boardCode: string, jobType: string): BaseScraper | null {
   if (jobType === "question_paper") {
     switch (boardCode.toUpperCase()) {
       case "CBSE":
@@ -45,6 +50,11 @@ function getScraperForJob(boardCode: string, jobType: string): BaseScraper {
       default:
         throw new Error(`No question paper scraper for board: ${boardCode}`);
     }
+  }
+
+  // "textbook" for CBSE should use NCERT downloader — handled via ncert-download queue
+  if (jobType === "textbook" && boardCode.toUpperCase() === "CBSE") {
+    return null; // Signal to use NCERT pipeline instead
   }
 
   switch (boardCode.toUpperCase()) {
@@ -55,7 +65,7 @@ function getScraperForJob(boardCode: string, jobType: string): BaseScraper {
     case "KL_SCERT":
       return new KeralaScraper(SCRAPER_CONFIG);
     default:
-      throw new Error(`No scraper implementation for board: ${boardCode}`);
+      throw new Error(`No scraper implementation for board: ${boardCode}. Use the specific pipeline job type (ncert_download, diksha_ingest, kerala_scrape, state_board_scrape) instead.`);
   }
 }
 
@@ -119,6 +129,32 @@ export function startScrapeWorker(): Worker<ScrapeJobData> {
         }
 
         const scraper = getScraperForJob(boardCode, jobType);
+
+        // If null, this is a CBSE textbook job — route to NCERT downloader directly
+        if (scraper === null) {
+          console.log(`[ScrapeWorker] Routing CBSE textbook job to NCERT downloader`);
+          const { runNcertDownload } = await import("../scraper/ncert-downloader");
+          const ncertResult = await runNcertDownload({
+            jobId,
+            grades,
+            maxChapters: maxPdfs ?? 50,
+            aiProvider: aiProvider ?? "auto",
+            resume: true,
+          });
+
+          progress.status = "completed";
+          progress.pdfsProcessed = ncertResult.chaptersDownloaded;
+          await job.updateProgress(progress);
+
+          await db.update(scrapeJobs).set({
+            status: "completed",
+            completedAt: new Date(),
+            itemsProcessed: ncertResult.chaptersDownloaded,
+          }).where(eq(scrapeJobs.id, jobId));
+
+          return { processed: ncertResult.chaptersDownloaded };
+        }
+
         const processed = await scraper.scrape({
           jobId,
           grades,
