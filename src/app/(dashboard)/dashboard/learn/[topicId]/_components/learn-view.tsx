@@ -12,6 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
+import { ContentViewToggle } from "@/components/content/content-view-toggle";
 import {
   BookOpen, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Clock,
   FileText, HelpCircle, Loader2, MessageSquare, Search, Send, CheckCircle2,
@@ -556,7 +557,7 @@ export function LearnView({ topicId }: { topicId: number }) {
                         <Badge variant="secondary" className="text-[10px]">{ci.sourceType === "ncert" ? "NCERT" : ci.sourceType === "ai_generated" ? "AI" : ci.sourceType}</Badge>
                         {ci.qualityScore ? <Badge variant="outline" className="text-[10px]">{Math.round(parseFloat(ci.qualityScore) * 100)}%</Badge> : null}
                       </div>
-                      <MarkdownRenderer content={ci.body} />
+                      <ContentViewToggle content={{ id: ci.id, title: ci.title, body: ci.body, contentType: ci.contentType, sourceType: ci.sourceType, sourceUrl: (ci as Record<string, unknown>).sourceUrl as string | undefined, metadata: ci.metadata ?? null }} onAskAI={(question) => { if (question) setChatInput(question); setRightPanel("chat"); }} />
                     </div>
                   ))}
                   {/* Videos section */}

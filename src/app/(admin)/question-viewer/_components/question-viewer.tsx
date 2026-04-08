@@ -28,6 +28,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
+import { QuestionImages, parseQuestionImages } from "@/components/content/question-images";
 
 // ---- Types ----
 interface SubjectEntry {
@@ -56,6 +57,7 @@ interface Question {
   sourcePaperId: number | null;
   sourcePaperTitle: string | null;
   sourcePaperUrl: string | null;
+  questionImages: unknown[] | null;
 }
 
 interface TopicGroup {
@@ -511,6 +513,11 @@ function QuestionRow({
           {/* Full question text */}
           {q.questionText.length > 150 && (
             <p className="whitespace-pre-wrap leading-relaxed">{highlightText(q.questionText)}</p>
+          )}
+
+          {/* Question images (figures, diagrams) */}
+          {q.questionImages && q.questionImages.length > 0 && (
+            <QuestionImages images={parseQuestionImages(q.questionImages)} compact />
           )}
 
           {/* MCQ options */}

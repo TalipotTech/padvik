@@ -19,6 +19,8 @@ import {
   Cpu,
   Database,
   HelpCircle,
+  GraduationCap,
+  BookMarked,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,10 +37,10 @@ interface DashboardHomeProps {
 }
 
 const studentActions = [
-  { href: "/dashboard/syllabus", label: "Browse Syllabus", icon: BookOpen, color: "text-primary" },
-  { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, color: "text-violet-600" },
-  { href: "/dashboard/exams", label: "Take an Exam", icon: FileText, color: "text-orange-600" },
-  { href: "/dashboard/chat", label: "Ask AI", icon: MessageSquare, color: "text-blue-600" },
+  { href: "/dashboard/syllabus", label: "Curriculum", icon: BookOpen, color: "text-violet-600", desc: "Browse textbooks & study material" },
+  { href: "/dashboard/learn", label: "My Learning", icon: GraduationCap, color: "text-emerald-600", desc: "Continue where you left off" },
+  { href: "/dashboard/learn/journal", label: "Study Journal", icon: BookMarked, color: "text-amber-600", desc: "Notes, chats, videos & exams" },
+  { href: "/dashboard/chat", label: "Ask AI", icon: Sparkles, color: "text-blue-600", desc: "Ask anything about your subjects" },
 ];
 
 const teacherActions = [
@@ -135,13 +137,22 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       </div>
 
       {/* Quick actions — role-specific */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className={`grid gap-3 ${userRole === "admin" ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6" : "grid-cols-2 sm:grid-cols-4"}`}>
         {quickActions.map((action) => (
           <Link key={action.href} href={action.href}>
-            <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
-              <CardContent className="flex flex-col items-center gap-2 p-4 text-center">
-                <action.icon className={`h-6 w-6 ${action.color}`} />
-                <span className="text-sm font-medium">{action.label}</span>
+            <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full group">
+              <CardContent className="flex flex-col items-center gap-2.5 p-5 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/80 group-hover:bg-primary/10 transition-colors">
+                  <action.icon className={`h-6 w-6 ${action.color}`} />
+                </div>
+                <div>
+                  <span className="text-sm font-semibold block">{action.label}</span>
+                  {"desc" in action && (
+                    <span className="text-[10px] text-muted-foreground mt-0.5 block leading-tight">
+                      {(action as { desc: string }).desc}
+                    </span>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </Link>
@@ -168,31 +179,36 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
               <h2 className="text-lg font-semibold text-foreground">
                 {userRole === "teacher" ? "Subjects" : "Your Subjects"}
               </h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {(subjects ?? []).map((subject) => (
-                  <Link
-                    key={subject.id}
-                    href={`/dashboard/syllabus?subjectId=${subject.id}`}
-                  >
-                    <Card className="hover:border-primary/50 transition-colors cursor-pointer h-full">
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-base">{subject.name}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="pt-0">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="text-xs">
-                            {subject.code}
-                          </Badge>
-                          {subject.isElective && (
-                            <Badge variant="outline" className="text-xs">
-                              Elective
-                            </Badge>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                ))}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {(subjects ?? []).map((subject, i) => {
+                  const colors = [
+                    "from-violet-500/10 to-violet-600/5 border-violet-200",
+                    "from-blue-500/10 to-blue-600/5 border-blue-200",
+                    "from-emerald-500/10 to-emerald-600/5 border-emerald-200",
+                    "from-amber-500/10 to-amber-600/5 border-amber-200",
+                    "from-rose-500/10 to-rose-600/5 border-rose-200",
+                    "from-cyan-500/10 to-cyan-600/5 border-cyan-200",
+                    "from-indigo-500/10 to-indigo-600/5 border-indigo-200",
+                    "from-orange-500/10 to-orange-600/5 border-orange-200",
+                  ];
+                  const colorClass = colors[i % colors.length];
+                  return (
+                    <Link key={subject.id} href={`/dashboard/syllabus?subjectId=${subject.id}`}>
+                      <Card className={`bg-gradient-to-br ${colorClass} hover:shadow-md transition-all cursor-pointer h-full`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between gap-1">
+                            <BookOpen className="h-5 w-5 text-muted-foreground/60 shrink-0 mt-0.5" />
+                            {subject.isElective && (
+                              <Badge variant="outline" className="text-[9px] shrink-0">Elective</Badge>
+                            )}
+                          </div>
+                          <h3 className="text-sm font-semibold mt-2 leading-tight">{subject.name}</h3>
+                          <p className="text-[10px] text-muted-foreground mt-1">{subject.code}</p>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}

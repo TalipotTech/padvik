@@ -175,12 +175,49 @@ async function handleExtractText(
 
   console.log(`[FileWorker] Extracted ${extractedText.length} chars from ${fileName}`);
 
-  // Update file record with extracted text
+  // Rich extraction for PDFs — extract with images for enhanced content view
+  let richExtractionMeta: Record<string, unknown> | null = null;
+  if (fileType.includes("pdf") || ext === ".pdf") {
+    try {
+      const { extractFromPdf } = await import("../document-parser");
+      const { getImageUrl } = await import("../document-parser");
+      const richResult = await extractFromPdf(filePath, {
+        contentItemId: fileUploadId,
+        language: "en",
+      });
+      // Patch image paths to API URLs
+      for (const block of richResult.blocks) {
+        if (block.type === "image" && block.imagePath) {
+          const match = block.imagePath.match(/rich-content\/([^/]+)\/page-(\d+)\.png/);
+          if (match) {
+            block.imagePath = getImageUrl(match[1], parseInt(match[2], 10));
+          }
+        }
+      }
+      richExtractionMeta = {
+        richBlocks: richResult.blocks,
+        pageImages: richResult.pageImages.map((p) => ({
+          ...p,
+          url: getImageUrl(fileUploadId, p.pageNumber),
+        })),
+        extractionStrategy: richResult.metadata.strategy,
+      };
+      console.log(`[FileWorker] Rich extraction: ${richResult.blocks.length} blocks, ${richResult.pageImages.length} pages`);
+    } catch (err) {
+      console.warn("[FileWorker] Rich extraction failed (non-fatal):", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // Update file record with extracted text + rich metadata
+  const existingMeta = (upload.metadata as Record<string, unknown>) ?? {};
   await db
     .update(fileUploads)
     .set({
       extractedText,
       processingStatus: "completed",
+      ...(richExtractionMeta ? {
+        metadata: { ...existingMeta, richExtraction: richExtractionMeta },
+      } : {}),
     })
     .where(eq(fileUploads.id, fileUploadId));
 

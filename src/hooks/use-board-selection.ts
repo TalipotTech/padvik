@@ -51,8 +51,38 @@ function emitChange() {
   for (const listener of listeners) listener();
 }
 
+// Hydrate from profile API if localStorage is empty (one-time)
+let hydrated = false;
+function hydrateFromProfile() {
+  if (hydrated || typeof window === "undefined") return;
+  hydrated = true;
+
+  // Only hydrate if localStorage has no selection
+  const existing = localStorage.getItem(STORAGE_KEY);
+  if (existing) return;
+
+  fetch("/api/user/profile")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (!data?.success || !data.data?.boardId) return;
+      const { boardId, boardName, boardCode, grade } = data.data;
+      const sel: BoardSelection = {
+        boardId,
+        boardName: boardCode ?? boardName ?? null,
+        grade: grade ?? null,
+        stream: null,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
+      emitChange();
+    })
+    .catch(() => { /* non-critical */ });
+}
+
 export function useBoardSelection() {
   const selection = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+
+  // Hydrate from DB on first render if localStorage is empty
+  if (typeof window !== "undefined") hydrateFromProfile();
 
   const setSelection = useCallback((sel: Partial<BoardSelection>) => {
     const current = getSnapshot();

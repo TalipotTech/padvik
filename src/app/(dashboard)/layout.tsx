@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { Toaster } from "@/components/ui/sonner";
+import { FloatingChatWidget } from "@/components/chat/floating-chat-widget";
 
 const DEV_BYPASS = process.env.NODE_ENV === "development";
 
@@ -52,6 +53,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </main>
       </div>
       <Toaster />
+      <FloatingChatWidget />
     </div>
   );
 }

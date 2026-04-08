@@ -142,5 +142,35 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, data: { items: [...exams], total: countResult?.cnt ?? 0, summary: [...examSummary] } });
   }
 
-  return NextResponse.json({ success: false, error: { code: "INVALID_TAB", message: "Tab must be notes, chats, or exams" } }, { status: 400 });
+  if (tab === "videos") {
+    const videos = await db.execute<{
+      id: number; topic_id: number; youtube_url: string; title: string | null;
+      thumbnail_url: string | null; created_at: string; topic_title: string;
+      chapter_title: string; subject_name: string; subject_id: number;
+    }>(sql`
+      SELECT uv.id, uv.topic_id, uv.youtube_url, uv.title, uv.thumbnail_url,
+        uv.created_at::text AS created_at,
+        t.title AS topic_title, ch.title AS chapter_title,
+        s.name AS subject_name, s.id AS subject_id
+      FROM user_videos uv
+      JOIN topics t ON t.id = uv.topic_id
+      JOIN chapters ch ON ch.id = t.chapter_id
+      JOIN subjects s ON s.id = ch.subject_id
+      WHERE uv.user_id = ${userId} ${searchFilter} ${subjectFilter}
+      ORDER BY uv.created_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `);
+
+    const [countResult] = await db.execute<{ cnt: number }>(sql`
+      SELECT count(*)::int as cnt FROM user_videos uv
+      JOIN topics t ON t.id = uv.topic_id
+      JOIN chapters ch ON ch.id = t.chapter_id
+      JOIN subjects s ON s.id = ch.subject_id
+      WHERE uv.user_id = ${userId} ${searchFilter} ${subjectFilter}
+    `);
+
+    return NextResponse.json({ success: true, data: { items: [...videos], total: countResult?.cnt ?? 0 } });
+  }
+
+  return NextResponse.json({ success: false, error: { code: "INVALID_TAB", message: "Tab must be notes, chats, exams, or videos" } }, { status: 400 });
 }

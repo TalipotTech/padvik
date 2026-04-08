@@ -55,30 +55,62 @@ export async function GET(request: NextRequest) {
          JOIN chapters c ON c.id = t.chapter_id
          WHERE c.subject_id = s.id AND rp.user_id = ${userId}), 0
       ) AS avg_completion,
-      (SELECT t.id FROM reading_progress rp
-       JOIN content_items ci ON ci.id = rp.content_item_id
-       JOIN topics t ON t.id = ci.topic_id
+      (SELECT la.topic_id FROM (
+        SELECT ci.topic_id, rp.last_read_at AS activity_at FROM reading_progress rp
+          JOIN content_items ci ON ci.id = rp.content_item_id WHERE rp.user_id = ${userId}
+        UNION ALL
+        SELECT un.topic_id, un.created_at AS activity_at FROM user_notes un WHERE un.user_id = ${userId} AND un.topic_id IS NOT NULL
+        UNION ALL
+        SELECT uv.topic_id, uv.created_at AS activity_at FROM user_videos uv WHERE uv.user_id = ${userId}
+        UNION ALL
+        SELECT tc.topic_id, tc.updated_at AS activity_at FROM topic_conversations tc WHERE tc.user_id = ${userId}
+       ) la
+       JOIN topics t ON t.id = la.topic_id
        JOIN chapters c ON c.id = t.chapter_id
-       WHERE c.subject_id = s.id AND rp.user_id = ${userId}
-       ORDER BY rp.last_read_at DESC LIMIT 1) AS latest_topic_id,
-      (SELECT t.title FROM reading_progress rp
-       JOIN content_items ci ON ci.id = rp.content_item_id
-       JOIN topics t ON t.id = ci.topic_id
+       WHERE c.subject_id = s.id
+       ORDER BY la.activity_at DESC LIMIT 1) AS latest_topic_id,
+      (SELECT t.title FROM (
+        SELECT ci.topic_id, rp.last_read_at AS activity_at FROM reading_progress rp
+          JOIN content_items ci ON ci.id = rp.content_item_id WHERE rp.user_id = ${userId}
+        UNION ALL
+        SELECT un.topic_id, un.created_at AS activity_at FROM user_notes un WHERE un.user_id = ${userId} AND un.topic_id IS NOT NULL
+        UNION ALL
+        SELECT uv.topic_id, uv.created_at AS activity_at FROM user_videos uv WHERE uv.user_id = ${userId}
+        UNION ALL
+        SELECT tc.topic_id, tc.updated_at AS activity_at FROM topic_conversations tc WHERE tc.user_id = ${userId}
+       ) la
+       JOIN topics t ON t.id = la.topic_id
        JOIN chapters c ON c.id = t.chapter_id
-       WHERE c.subject_id = s.id AND rp.user_id = ${userId}
-       ORDER BY rp.last_read_at DESC LIMIT 1) AS latest_topic_title,
-      (SELECT c.title FROM reading_progress rp
-       JOIN content_items ci ON ci.id = rp.content_item_id
-       JOIN topics t ON t.id = ci.topic_id
+       WHERE c.subject_id = s.id
+       ORDER BY la.activity_at DESC LIMIT 1) AS latest_topic_title,
+      (SELECT c.title FROM (
+        SELECT ci.topic_id, rp.last_read_at AS activity_at FROM reading_progress rp
+          JOIN content_items ci ON ci.id = rp.content_item_id WHERE rp.user_id = ${userId}
+        UNION ALL
+        SELECT un.topic_id, un.created_at AS activity_at FROM user_notes un WHERE un.user_id = ${userId} AND un.topic_id IS NOT NULL
+        UNION ALL
+        SELECT uv.topic_id, uv.created_at AS activity_at FROM user_videos uv WHERE uv.user_id = ${userId}
+        UNION ALL
+        SELECT tc.topic_id, tc.updated_at AS activity_at FROM topic_conversations tc WHERE tc.user_id = ${userId}
+       ) la
+       JOIN topics t ON t.id = la.topic_id
        JOIN chapters c ON c.id = t.chapter_id
-       WHERE c.subject_id = s.id AND rp.user_id = ${userId}
-       ORDER BY rp.last_read_at DESC LIMIT 1) AS latest_chapter_title,
-      (SELECT rp.last_read_at::text FROM reading_progress rp
-       JOIN content_items ci ON ci.id = rp.content_item_id
-       JOIN topics t ON t.id = ci.topic_id
+       WHERE c.subject_id = s.id
+       ORDER BY la.activity_at DESC LIMIT 1) AS latest_chapter_title,
+      (SELECT la.activity_at::text FROM (
+        SELECT ci.topic_id, rp.last_read_at AS activity_at FROM reading_progress rp
+          JOIN content_items ci ON ci.id = rp.content_item_id WHERE rp.user_id = ${userId}
+        UNION ALL
+        SELECT un.topic_id, un.created_at AS activity_at FROM user_notes un WHERE un.user_id = ${userId} AND un.topic_id IS NOT NULL
+        UNION ALL
+        SELECT uv.topic_id, uv.created_at AS activity_at FROM user_videos uv WHERE uv.user_id = ${userId}
+        UNION ALL
+        SELECT tc.topic_id, tc.updated_at AS activity_at FROM topic_conversations tc WHERE tc.user_id = ${userId}
+       ) la
+       JOIN topics t ON t.id = la.topic_id
        JOIN chapters c ON c.id = t.chapter_id
-       WHERE c.subject_id = s.id AND rp.user_id = ${userId}
-       ORDER BY rp.last_read_at DESC LIMIT 1) AS latest_read_at,
+       WHERE c.subject_id = s.id
+       ORDER BY la.activity_at DESC LIMIT 1) AS latest_read_at,
       (SELECT json_build_object(
         'red', count(*) FILTER (WHERE tu.understanding_level = 'red'),
         'orange', count(*) FILTER (WHERE tu.understanding_level = 'orange'),

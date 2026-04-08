@@ -40,11 +40,11 @@ const chatSchema = z.object({
   topicId: z.number().int(),
   message: z.string().min(1).max(5000),
   /** Continue an existing conversation */
-  conversationId: z.number().int().optional(),
+  conversationId: z.number().int().nullable().optional(),
   /** AI provider override: claude/gemini/openai/mistral/sarvam */
-  provider: z.enum(["claude", "gemini", "openai", "mistral", "sarvam"]).optional(),
+  provider: z.enum(["claude", "gemini", "openai", "mistral", "sarvam"]).nullable().optional(),
   /** Selected text context for "Ask AI" from text selection */
-  selectedText: z.string().optional(),
+  selectedText: z.string().nullable().optional(),
 });
 
 export async function POST(request: NextRequest) {

@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
+import { ContentViewToggle } from "@/components/content/content-view-toggle";
 import { useData } from "@/hooks/use-data";
 import { getTopicWithContent } from "@/lib/data";
 
@@ -159,7 +160,7 @@ export function TopicDetail({ topicId }: TopicDetailProps) {
   );
 }
 
-function ContentCard({ item }: { item: { id: number; title: string; body: string | null; sourceType: string; qualityScore: string | null; language?: string; contentType?: string } }) {
+function ContentCard({ item }: { item: { id: number; title: string; body: string | null; sourceType: string; qualityScore: string | null; language?: string; contentType?: string; metadata?: unknown } }) {
   const sourceLabels: Record<string, string> = {
     ai_generated: "AI",
     ncert: "NCERT",
@@ -198,7 +199,17 @@ function ContentCard({ item }: { item: { id: number; title: string; body: string
       </CardHeader>
       <CardContent>
         {item.body ? (
-          <MarkdownRenderer content={item.body} />
+          <ContentViewToggle
+            content={{
+              id: item.id,
+              title: item.title,
+              body: item.body,
+              contentType: item.contentType ?? "",
+              sourceType: item.sourceType,
+              sourceUrl: (item as Record<string, unknown>).sourceUrl as string | undefined,
+              metadata: (item.metadata as Record<string, unknown>) ?? null,
+            }}
+          />
         ) : (
           <p className="text-sm text-muted-foreground italic">
             Content body not available.

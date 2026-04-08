@@ -48,6 +48,12 @@ export function BoardPicker({ open, onOpenChange }: BoardPickerProps) {
       grade: selectedGrade,
       stream: null,
     });
+    // Persist to user profile in DB (fire-and-forget)
+    fetch("/api/user/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ boardId: selectedBoard.id, grade: selectedGrade }),
+    }).catch(() => { /* non-critical — localStorage is the primary store */ });
     onOpenChange(false);
   }
 

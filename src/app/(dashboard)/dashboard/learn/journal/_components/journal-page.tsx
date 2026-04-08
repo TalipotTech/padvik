@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import {
   StickyNote, MessageSquare, GraduationCap, Search, ChevronRight,
   Play, Camera, Loader2, Award, BarChart3, X, ZoomIn, ZoomOut,
-  RotateCw, Maximize2, Minimize2, ArrowLeft,
+  RotateCw, Maximize2, Minimize2, ArrowLeft, Video,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +25,7 @@ interface ChatMessage { role: string; content: string }
 interface ChatItem { id: number; topic_id: number; keyword: string | null; message_count: number; ai_provider: string | null; total_tokens: number; messages: ChatMessage[]; created_at: string; updated_at: string; topic_title: string; chapter_title: string; subject_name: string; subject_id: number }
 interface ExamItem { attempt_id: number; exam_id: number; title: string; total_score: string | null; max_score: string | null; percentage: string | null; grade: string | null; status: string; attempt_number: number; started_at: string | null; submitted_at: string | null; topic_id: number; topic_title: string; subject_name: string; subject_id: number; chapter_title: string }
 interface ExamSummary { subject_name: string; subject_id: number; exam_count: number; avg_percentage: number; best_percentage: number; total_score_sum: number; max_score_sum: number }
+interface VideoItem { id: number; topic_id: number; youtube_url: string; title: string | null; thumbnail_url: string | null; created_at: string; topic_title: string; chapter_title: string; subject_name: string; subject_id: number }
 
 // ---------------------------------------------------------------------------
 // Component
@@ -79,7 +80,8 @@ export function JournalPage() {
   const selectedNote = activeTab === "notes" ? (items as NoteItem[]).find((n) => n.id === selectedId) : null;
   const selectedChat = activeTab === "chats" ? (items as ChatItem[]).find((c) => c.id === selectedId) : null;
   const selectedExam = activeTab === "exams" ? (items as ExamItem[]).find((e) => e.attempt_id === selectedId) : null;
-  const hasSelection = !!(selectedNote || selectedChat || selectedExam);
+  const selectedVideo = activeTab === "videos" ? (items as VideoItem[]).find((v) => v.id === selectedId) : null;
+  const hasSelection = !!(selectedNote || selectedChat || selectedExam || selectedVideo);
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] -mx-4 lg:-mx-6 -my-4 lg:-my-6">
@@ -101,6 +103,7 @@ export function JournalPage() {
                 <TabsTrigger value="notes" className="flex-1 gap-1 text-xs"><StickyNote className="h-3 w-3" />Notes</TabsTrigger>
                 <TabsTrigger value="chats" className="flex-1 gap-1 text-xs"><MessageSquare className="h-3 w-3" />Chats</TabsTrigger>
                 <TabsTrigger value="exams" className="flex-1 gap-1 text-xs"><GraduationCap className="h-3 w-3" />Exams</TabsTrigger>
+                <TabsTrigger value="videos" className="flex-1 gap-1 text-xs"><Video className="h-3 w-3" />Videos</TabsTrigger>
               </TabsList>
               <div className="relative">
                 <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
@@ -203,6 +206,39 @@ export function JournalPage() {
                     })}
                   </div>
                 )}
+              </TabsContent>
+
+              <TabsContent value="videos" className="m-0 p-0">
+                {loading ? <div className="py-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-violet-600" /></div> : (() => {
+                  // Guard: only cast when items actually have youtube_url (videos tab data)
+                  const videoItems = (items as VideoItem[]).filter((v) => v && typeof v === "object" && "youtube_url" in v);
+                  if (videoItems.length === 0) return <div className="py-8 text-center text-xs text-muted-foreground">No videos saved yet</div>;
+                  return (
+                  <div className="divide-y">
+                    {videoItems.map((v) => {
+                      const videoId = v.youtube_url?.match(/(?:v=|youtu\.be\/|\/live\/|\/shorts\/|\/embed\/)([a-zA-Z0-9_-]{11})/)?.[1];
+                      return (
+                        <button key={v.id} onClick={() => setSelectedId(v.id)}
+                          className={`flex items-center gap-2.5 w-full px-3 py-2.5 text-left transition-colors ${selectedId === v.id ? "bg-primary/10" : "hover:bg-muted/50"}`}>
+                          {videoId ? (
+                            <img src={`https://img.youtube.com/vi/${videoId}/default.jpg`} alt="" className="h-10 w-14 rounded object-cover shrink-0" />
+                          ) : (
+                            <div className="h-10 w-14 rounded bg-muted flex items-center justify-center shrink-0"><Video className="h-4 w-4 text-muted-foreground" /></div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-medium truncate">{v.title ?? v.youtube_url}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <Badge variant="secondary" className="text-[8px]">{v.subject_name}</Badge>
+                              <span className="text-[9px] text-muted-foreground">{v.topic_title}</span>
+                            </div>
+                            <div className="text-[9px] text-muted-foreground mt-0.5">{new Date(v.created_at).toLocaleDateString()}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  );
+                })()}
               </TabsContent>
             </ScrollArea>
           </Tabs>
@@ -368,6 +404,49 @@ export function JournalPage() {
                           <Button variant="outline" className="h-9">Study Topic</Button>
                         </Link>
                       </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : selectedVideo ? (
+              <div className="p-4 space-y-4">
+                {(() => {
+                  const videoId = selectedVideo.youtube_url.match(/(?:v=|youtu\.be\/|\/live\/|\/shorts\/|\/embed\/)([a-zA-Z0-9_-]{11})/)?.[1];
+                  return (
+                    <>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge variant="secondary" className="text-[10px]">{selectedVideo.subject_name}</Badge>
+                          <span className="text-[10px] text-muted-foreground">{selectedVideo.chapter_title} &middot; {selectedVideo.topic_title}</span>
+                        </div>
+                        <h2 className="text-lg font-bold">{selectedVideo.title ?? "Video"}</h2>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted-foreground">{new Date(selectedVideo.created_at).toLocaleString()}</span>
+                        </div>
+                        <Link href={`/dashboard/learn/${selectedVideo.topic_id}?panel=videos`}>
+                          <Button variant="link" size="sm" className="text-xs px-0 h-auto">Open in Playground <ChevronRight className="h-3 w-3 ml-0.5" /></Button>
+                        </Link>
+                      </div>
+
+                      <Separator />
+
+                      {/* Inline YouTube player */}
+                      {videoId ? (
+                        <div className="rounded-lg overflow-hidden border">
+                          <iframe
+                            src={`https://www.youtube.com/embed/${videoId}`}
+                            className="w-full aspect-video"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-dashed p-8 text-center">
+                          <Video className="h-8 w-8 mx-auto text-muted-foreground/40 mb-2" />
+                          <p className="text-sm text-muted-foreground">Could not load video</p>
+                          <a href={selectedVideo.youtube_url} target="_blank" rel="noopener noreferrer" className="text-xs text-violet-600 hover:underline mt-1 block">Open original link</a>
+                        </div>
+                      )}
                     </>
                   );
                 })()}

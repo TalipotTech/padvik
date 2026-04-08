@@ -9,6 +9,7 @@ const withSerwist = withSerwistInit({
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  serverExternalPackages: ["pdf-to-img", "pdfjs-dist"],
   experimental: {
     serverActions: {
       bodySizeLimit: "2mb",

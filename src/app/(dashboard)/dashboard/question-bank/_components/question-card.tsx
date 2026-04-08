@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { ShareDialog } from "./share-dialog";
 import { apiFetch } from "@/lib/api-client";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
+import { QuestionImages, parseQuestionImages } from "@/components/content/question-images";
 
 interface Question {
   id: number;
@@ -29,6 +30,7 @@ interface Question {
   tags: string[];
   createdAt: string;
   createdBy: number | null;
+  questionImages?: unknown[] | null;
 }
 
 const DIFFICULTY_COLORS: Record<string, string> = {
@@ -113,6 +115,11 @@ export function QuestionCard({
             }
             className="text-sm"
           />
+
+          {/* Question images (figures, diagrams) */}
+          {question.questionImages && question.questionImages.length > 0 && (
+            <QuestionImages images={parseQuestionImages(question.questionImages)} compact className="mt-2" />
+          )}
 
           {/* MCQ options */}
           {question.options && question.options.length > 0 && (

@@ -25,9 +25,10 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
+import { ContentViewToggle } from "@/components/content/content-view-toggle";
 import { useBoardSelection } from "@/hooks/use-board-selection";
 import { useData } from "@/hooks/use-data";
-import { getBoards, getSubjects, getTopicWithContent } from "@/lib/data";
+import { getBoards, getStandards, getSubjects, getTopicWithContent } from "@/lib/data";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,8 +59,30 @@ interface Subject {
 // Component
 // ---------------------------------------------------------------------------
 
-export function SyllabusExplorer() {
-  const { boardId, boardName, grade } = useBoardSelection();
+export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }) {
+  const isAdmin = userRole === "admin";
+  const isTeacher = userRole === "teacher";
+  const canSwitchBoard = isAdmin || isTeacher;
+  const globalSelection = useBoardSelection();
+
+  // Local board/grade override for this page (admin/teacher can freely switch)
+  const [localBoardId, setLocalBoardId] = useState<number | null>(null);
+  const [localGrade, setLocalGrade] = useState<number | null>(null);
+
+  // Effective values: local override > global
+  const boardId = localBoardId ?? globalSelection.boardId;
+  const boardName = localBoardId
+    ? null // will be resolved from boards data
+    : globalSelection.boardName;
+  const grade = localGrade ?? globalSelection.grade;
+
+  // Fetch all boards for the selector
+  const { data: allBoards } = useData(() => getBoards(), []);
+  // Fetch grades/standards for selected board
+  const { data: boardStandards } = useData(
+    () => (boardId ? getStandards(boardId) : Promise.resolve([])),
+    [boardId]
+  );
   const searchParams = useSearchParams();
   const preSelectedSubjectId = searchParams.get("subjectId");
 
@@ -208,8 +231,56 @@ export function SyllabusExplorer() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] -mx-4 lg:-mx-6 -my-4 lg:-my-6">
-      {/* Top Bar — search + filters + navigation */}
-      <div className="flex items-center gap-2 border-b px-4 py-2 shrink-0 bg-card">
+      {/* Top Bar — board/grade + search + filters + navigation */}
+      <div className="flex items-center gap-2 border-b px-4 py-2 shrink-0 bg-card flex-wrap">
+        {/* Board selector */}
+        <Select
+          value={boardId?.toString() ?? ""}
+          onValueChange={(v) => {
+            setLocalBoardId(Number(v));
+            setLocalGrade(null);
+            setSelectedSubjectId(null);
+            setSelectedTopicId(null);
+            setTopicContent(null);
+          }}
+          disabled={!canSwitchBoard}
+        >
+          <SelectTrigger className="h-8 w-[130px] text-xs">
+            <SelectValue placeholder="Board" />
+          </SelectTrigger>
+          <SelectContent>
+            {(allBoards ?? []).filter((b: { isActive: boolean }) => b.isActive).map((b: { id: number; code: string; name: string }) => (
+              <SelectItem key={b.id} value={b.id.toString()} className="text-xs">{b.code}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* Grade selector */}
+        <Select
+          value={grade?.toString() ?? ""}
+          onValueChange={(v) => {
+            setLocalGrade(Number(v));
+            setSelectedSubjectId(null);
+            setSelectedTopicId(null);
+            setTopicContent(null);
+          }}
+        >
+          <SelectTrigger className="h-8 w-[110px] text-xs">
+            <SelectValue placeholder="Class" />
+          </SelectTrigger>
+          <SelectContent>
+            {(boardStandards ?? [])
+              .map((s: { grade: number }) => s.grade)
+              .filter((g: number, i: number, arr: number[]) => arr.indexOf(g) === i)
+              .sort((a: number, b: number) => a - b)
+              .map((g: number) => (
+                <SelectItem key={g} value={g.toString()} className="text-xs">Class {g}</SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+
+        <Separator orientation="vertical" className="h-5" />
+
         {/* Subject selector */}
         <Select value={selectedSubjectId?.toString() ?? ""} onValueChange={(v) => { setSelectedSubjectId(Number(v)); setSelectedTopicId(null); setTopicContent(null); setSearchQuery(""); }}>
           <SelectTrigger className="h-8 w-[200px] text-xs"><SelectValue placeholder="Select Subject" /></SelectTrigger>
@@ -257,8 +328,8 @@ export function SyllabusExplorer() {
           </Link>
         )}
 
-        {/* Content gap indicator + Fill button (admin) */}
-        {gapInfo && gapInfo.topicsMissing > 0 && (
+        {/* Content gap indicator + Fill button (admin only) */}
+        {isAdmin && gapInfo && gapInfo.topicsMissing > 0 && (
           <>
             <Separator orientation="vertical" className="h-5" />
             <span className="text-[10px] text-amber-600 flex items-center gap-1">
@@ -277,7 +348,7 @@ export function SyllabusExplorer() {
             </Button>
           </>
         )}
-        {gapInfo && gapInfo.topicsMissing === 0 && (
+        {isAdmin && gapInfo && gapInfo.topicsMissing === 0 && (
           <>
             <Separator orientation="vertical" className="h-5" />
             <span className="text-[10px] text-emerald-600 flex items-center gap-1">
@@ -285,7 +356,7 @@ export function SyllabusExplorer() {
             </span>
           </>
         )}
-        {fillResult && (
+        {isAdmin && fillResult && (
           <span className="text-[10px] text-emerald-600">
             Generated {fillResult.processed} topics (${ fillResult.totalCostUsd.toFixed(4)})
           </span>
@@ -431,7 +502,17 @@ export function SyllabusExplorer() {
                             ) : null}
                           </div>
                           {ci.body ? (
-                            <MarkdownRenderer content={ci.body} />
+                            <ContentViewToggle
+                              content={{
+                                id: ci.id,
+                                title: ci.title,
+                                body: ci.body,
+                                contentType: (ci as Record<string, unknown>).contentType as string ?? "",
+                                sourceType: ci.sourceType,
+                                sourceUrl: (ci as Record<string, unknown>).sourceUrl as string | undefined,
+                                metadata: meta ?? null,
+                              }}
+                            />
                           ) : (
                             <p className="text-sm text-muted-foreground italic">Content not available.</p>
                           )}

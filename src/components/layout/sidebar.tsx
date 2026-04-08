@@ -55,14 +55,14 @@ interface NavItem {
 const navItems: NavItem[] = [
   // --- Common ---
   { href: "/dashboard", label: "Dashboard", icon: Home },
-  { href: "/dashboard/syllabus", label: "Study", icon: BookOpen, roles: ["student", "teacher", "admin"] },
+  { href: "/dashboard/syllabus", label: "Curriculum", icon: BookOpen, roles: ["student", "teacher", "admin"] },
   { href: "/dashboard/learn", label: "My Learning", icon: GraduationCap, roles: ["student", "admin"] },
   { href: "/dashboard/learn/journal", label: "Study Journal", icon: BookMarked, roles: ["student", "admin"] },
-  { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, roles: ["student", "teacher", "admin"] },
-  { href: "/dashboard/exams", label: "Exams", icon: FileText, roles: ["student", "teacher"] },
-  { href: "/dashboard/chat", label: "AI Chat", icon: MessageSquare, roles: ["student", "teacher"] },
+  { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, roles: ["teacher", "admin"] },
+  { href: "/dashboard/exams", label: "Exams", icon: FileText, roles: ["teacher", "admin"] },
+  { href: "/dashboard/chat", label: "AI Chat", icon: MessageSquare, roles: ["teacher", "admin"] },
   { href: "/dashboard/classroom", label: "Classrooms", icon: Users, roles: ["teacher"] },
-  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, roles: ["student", "teacher", "parent"] },
+  { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, roles: ["teacher", "parent", "admin"] },
 
   // --- Admin: Content Pipeline ---
   { href: "/scrape-jobs", label: "Scrape Jobs", icon: Upload, roles: ["admin"], section: "Content Pipeline" },
@@ -80,7 +80,7 @@ const navItems: NavItem[] = [
   { href: "/question-paper-verifier", label: "Paper Verifier", icon: CheckSquare, roles: ["admin"] },
 
   // --- Common ---
-  { href: "/dashboard/settings", label: "Settings", icon: Settings },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings, roles: ["teacher", "admin", "parent"] },
 ];
 
 function getNavForRole(role: string) {
