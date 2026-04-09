@@ -73,6 +73,7 @@ const parentActions = [
 
 function getActionsForRole(role: string) {
   switch (role) {
+    case "creator": return teacherActions;
     case "teacher": return teacherActions;
     case "admin": return adminActions;
     case "parent": return parentActions;
@@ -82,6 +83,7 @@ function getActionsForRole(role: string) {
 
 function getRoleLabel(role: string) {
   switch (role) {
+    case "creator": return "Creator";
     case "teacher": return "Teacher";
     case "admin": return "Administrator";
     case "parent": return "Parent";
@@ -95,7 +97,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
 
   // Auto-open picker if no board selected (students and teachers need board context)
   useEffect(() => {
-    if (!boardId && (userRole === "student" || userRole === "teacher")) {
+    if (!boardId && (userRole === "student" || userRole === "teacher" || userRole === "creator")) {
       setPickerOpen(true);
     }
   }, [boardId, userRole]);
@@ -148,7 +150,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
               )}
             </div>
           </div>
-          {(userRole === "student" || userRole === "teacher") && (
+          {(userRole === "student" || userRole === "teacher" || userRole === "creator") && (
             <Button
               variant="outline"
               size="sm"
@@ -162,7 +164,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       </div>
 
       {/* Continue Learning — shown at top for students */}
-      {continueData.length > 0 && (userRole === "student" || userRole === "teacher") && (
+      {continueData.length > 0 && (userRole === "student" || userRole === "teacher" || userRole === "creator") && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold flex items-center gap-2">
@@ -232,12 +234,12 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       <DashboardNotifications />
 
       {/* Subjects overview — for students and teachers */}
-      {(userRole === "student" || userRole === "teacher") && (
+      {(userRole === "student" || userRole === "teacher" || userRole === "creator") && (
         <>
           {subjectsLoading && boardId && (
             <div className="space-y-3">
               <h2 className="text-lg font-semibold text-foreground">
-                {userRole === "teacher" ? "Subjects" : "Your Subjects"}
+                {userRole === "teacher" || userRole === "creator" ? "Subjects" : "Your Subjects"}
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -249,7 +251,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
           {(subjects ?? []).length > 0 && (
             <div className="space-y-3">
               <h2 className="text-lg font-semibold text-foreground">
-                {userRole === "teacher" ? "Subjects" : "Your Subjects"}
+                {userRole === "teacher" || userRole === "creator" ? "Subjects" : "Your Subjects"}
               </h2>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {(subjects ?? []).map((subject, i) => {
@@ -327,7 +329,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       )}
 
       {/* Teacher-specific section */}
-      {userRole === "teacher" && (
+      {userRole === "teacher" || userRole === "creator" && (
         <div className="space-y-3">
           <h2 className="text-lg font-semibold text-foreground">Your Classrooms</h2>
           <Card>

@@ -21,6 +21,9 @@ export const users = pgTable("users", {
   standardId: bigint("standard_id", { mode: "number" }),
   isVerified: boolean("is_verified").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
+  isCreator: boolean("is_creator").notNull().default(false),
+  creatorTier: varchar("creator_tier", { length: 20 }), // free, plus, pro
+  creatorVerified: boolean("creator_verified").notNull().default(false),
   preferences: jsonb("preferences").default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

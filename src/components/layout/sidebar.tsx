@@ -26,6 +26,10 @@ import {
   BookMarked,
   Layers,
   Play,
+  Sparkles,
+  HelpCircle,
+  FolderOpen,
+  Inbox,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -48,16 +52,20 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 
 interface NavItem {
   href: string;
+  /** Override href when user is a creator */
+  creatorHref?: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   roles?: string[];
   /** Section header — shown before this item's group */
   section?: string;
+  /** Only show this item if user is a creator */
+  requiresCreator?: boolean;
 }
 
 const navItems: NavItem[] = [
   // --- Common ---
-  { href: "/dashboard", label: "Dashboard", icon: Home },
+  { href: "/dashboard", creatorHref: "/dashboard/creator", label: "Dashboard", icon: Home },
   { href: "/dashboard/syllabus", label: "Curriculum", icon: BookOpen, roles: ["student", "teacher", "admin"] },
   { href: "/dashboard/learn", label: "My Learning", icon: GraduationCap, roles: ["student", "admin"] },
   { href: "__playground__", label: "Playground", icon: Play, roles: ["student"] },
@@ -66,7 +74,12 @@ const navItems: NavItem[] = [
   { href: "/dashboard/exams", label: "Exams", icon: FileText, roles: ["teacher", "admin"] },
   { href: "/dashboard/chat", label: "AI Chat", icon: MessageSquare, roles: ["teacher", "admin"] },
   { href: "/dashboard/classroom", label: "Classrooms", icon: Users, roles: ["teacher"] },
+  { href: "/dashboard/doubts", label: "Doubts", icon: HelpCircle, roles: ["student"] },
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, roles: ["teacher", "parent", "admin"] },
+
+  // --- Creator ---
+  { href: "/dashboard/creator/content", label: "My Content", icon: FolderOpen, section: "Creator", requiresCreator: true },
+  { href: "/dashboard/creator/doubts", label: "Doubt Inbox", icon: Inbox, requiresCreator: true },
 
   // --- Admin: Content Pipeline ---
   { href: "/scrape-jobs", label: "Scrape Jobs", icon: Upload, roles: ["admin"], section: "Content Pipeline" },
@@ -87,8 +100,11 @@ const navItems: NavItem[] = [
   { href: "/dashboard/settings", label: "Settings", icon: Settings, roles: ["teacher", "admin", "parent"] },
 ];
 
-function getNavForRole(role: string) {
-  return navItems.filter((item) => !item.roles || item.roles.includes(role));
+function getNavForRole(role: string, isCreator?: boolean) {
+  return navItems.filter((item) => {
+    if (item.requiresCreator && !isCreator) return false;
+    return !item.roles || item.roles.includes(role);
+  });
 }
 
 interface SidebarProps {
@@ -97,6 +113,7 @@ interface SidebarProps {
     email?: string | null;
     image?: string | null;
     role?: string;
+    isCreator?: boolean;
   };
   signOutAction: () => Promise<void>;
 }
@@ -114,20 +131,25 @@ function NavLink({
   item,
   collapsed,
   pathname,
+  isCreator,
 }: {
   item: NavItem;
   collapsed: boolean;
   pathname: string;
+  isCreator?: boolean;
 }) {
-  // Resolve dynamic hrefs
-  const resolvedHref = item.href === "__playground__" ? getPlaygroundHref() : item.href;
+  // Resolve dynamic hrefs — creator override, then playground
+  const baseHref = (isCreator && item.creatorHref) ? item.creatorHref : item.href;
+  const resolvedHref = baseHref === "__playground__" ? getPlaygroundHref() : baseHref;
 
   const isActive =
     item.href === "__playground__"
       ? pathname.match(/^\/dashboard\/learn\/\d+/) !== null
-      : item.href === "/dashboard"
-        ? pathname === "/dashboard"
-        : pathname.startsWith(item.href);
+      : (isCreator && item.creatorHref)
+        ? pathname.startsWith(item.creatorHref)
+        : item.href === "/dashboard"
+          ? pathname === "/dashboard" || pathname === "/dashboard/creator"
+          : pathname.startsWith(item.href);
 
   const link = (
     <Link
@@ -180,7 +202,7 @@ function SidebarContent({
     : "U";
 
   const role = user.role || "student";
-  const filteredNav = getNavForRole(role);
+  const filteredNav = getNavForRole(role, user.isCreator);
 
   return (
     <div className="flex h-full flex-col">
@@ -218,7 +240,7 @@ function SidebarContent({
                     {collapsed ? item.section!.charAt(0) : item.section}
                   </div>
                 )}
-                <NavLink item={item} collapsed={collapsed} pathname={pathname} />
+                <NavLink item={item} collapsed={collapsed} pathname={pathname} isCreator={user.isCreator} />
               </div>
             );
           })}
@@ -248,7 +270,7 @@ function SidebarContent({
                     {user.name || "User"}
                   </span>
                   <span className="text-xs text-muted-foreground capitalize truncate max-w-[130px]">
-                    {role}
+                    {user.isCreator ? "Creator" : role}
                   </span>
                 </div>
               )}

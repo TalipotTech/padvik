@@ -88,6 +88,11 @@ export default function HomePage() {
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
           <PadvikLogo size="lg" />
           <div className="flex items-center gap-3">
+            <Link href="/creators">
+              <Button variant="ghost" size="sm">
+                Teach on Padvik
+              </Button>
+            </Link>
             <Button variant="ghost" size="sm" onClick={() => setSignInOpen(true)}>
               Sign In
             </Button>
@@ -232,6 +237,53 @@ export default function HomePage() {
               <p className="mt-1 text-xs text-muted-foreground">{item.desc}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* For Creators */}
+      <section className="border-t bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-950/20 dark:to-indigo-950/20">
+        <div className="mx-auto max-w-7xl px-4 py-20">
+          <div className="flex flex-col items-center gap-8 lg:flex-row lg:gap-16">
+            <div className="flex-1 text-center lg:text-left">
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-violet-100 px-4 py-1.5 text-sm font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                <Sparkles className="size-4" />
+                For Educators
+              </div>
+              <h2 className="text-3xl font-bold tracking-tight">Teach on Padvik</h2>
+              <p className="mt-3 text-muted-foreground max-w-lg">
+                Share your knowledge with millions of Indian students. Upload video lessons,
+                notes, and question sets — all mapped to the curriculum. Clear doubts, build
+                your audience, and earn from your expertise.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3 justify-center lg:justify-start">
+                <Link href="/creators">
+                  <Button size="lg" className="gap-2">
+                    <Sparkles className="size-4" />
+                    Become a Creator
+                  </Button>
+                </Link>
+                <Link href="/creators">
+                  <Button size="lg" variant="outline">
+                    Learn More
+                  </Button>
+                </Link>
+              </div>
+            </div>
+            <div className="flex-1 grid grid-cols-2 gap-4 max-w-sm">
+              {[
+                { icon: Brain, label: "AI-Mapped Content", desc: "Auto-tag to syllabus" },
+                { icon: Users, label: "Grow Followers", desc: "Build your audience" },
+                { icon: MessageSquare, label: "Clear Doubts", desc: "Help students learn" },
+                { icon: BarChart3, label: "Track Performance", desc: "Detailed analytics" },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border bg-card p-4 text-center">
+                  <item.icon className="mx-auto size-6 text-violet-500" />
+                  <h3 className="mt-2 text-sm font-semibold">{item.label}</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 

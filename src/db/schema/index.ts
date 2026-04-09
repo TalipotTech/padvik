@@ -10,3 +10,6 @@ export * from "./system";
 export * from "./learn";
 export * from "./general-chat";
 export * from "./notifications";
+export * from "./creators";
+export * from "./doubts";
+export * from "./subscriptions";

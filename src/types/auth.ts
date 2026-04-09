@@ -8,17 +8,20 @@ declare module "next-auth" {
       id: string;
       role: UserRole;
       phone?: string | null;
+      isCreator?: boolean;
     } & DefaultSession["user"];
   }
 
   interface User {
     role: UserRole;
     phone?: string | null;
+    isCreator?: boolean;
   }
 
   // JWT interface is part of the "next-auth" module in v5
   interface JWT {
     role: UserRole;
     phone?: string | null;
+    isCreator?: boolean;
   }
 }

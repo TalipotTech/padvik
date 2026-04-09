@@ -51,9 +51,11 @@ export const authConfig = {
         token.sub = user.id;
         token.role = (user as { role?: UserRole }).role ?? "student";
         token.phone = (user as { phone?: string | null }).phone;
+        token.isCreator = (user as { isCreator?: boolean }).isCreator ?? false;
       }
       if (trigger === "update" && session) {
         if (session.role) token.role = session.role;
+        if (typeof session.isCreator === "boolean") token.isCreator = session.isCreator;
       }
       return token;
     },
@@ -63,6 +65,7 @@ export const authConfig = {
         session.user.id = token.sub;
         session.user.role = (token.role as UserRole) ?? "student";
         session.user.phone = token.phone as string | null;
+        session.user.isCreator = (token.isCreator as boolean) ?? false;
       }
       return session;
     },

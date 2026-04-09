@@ -53,6 +53,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           image: user.avatarUrl,
           role: user.role as UserRole,
           phone: user.phone,
+          isCreator: user.isCreator,
         };
       },
     }),
@@ -85,6 +86,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           image: null,
           role: role as UserRole,
           phone: null,
+          isCreator: false,
         };
       },
     }),
@@ -122,6 +124,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           image: user.avatarUrl,
           role: user.role as UserRole,
           phone: user.phone,
+          isCreator: user.isCreator,
         };
       },
     }),
@@ -149,15 +152,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               isVerified: true,
               isActive: true,
             })
-            .returning({ id: users.id, role: users.role });
+            .returning({ id: users.id, role: users.role, isCreator: users.isCreator });
 
           user.id = String(newUser.id);
           user.role = newUser.role as UserRole;
+          user.isCreator = newUser.isCreator;
         } else {
           if (!existing.isActive) return false;
           user.id = String(existing.id);
           user.role = existing.role as UserRole;
           user.phone = existing.phone;
+          user.isCreator = existing.isCreator;
         }
       }
       return true;
