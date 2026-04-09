@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PadvikLogo } from "@/components/ui/padvik-logo";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -7,10 +8,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <header className="border-b bg-background/80 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
           <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-600">
-              <span className="text-sm font-bold text-white">P</span>
-            </div>
-            <span className="text-lg font-bold">Padvik</span>
+            <PadvikLogo size="md" />
           </Link>
           <nav className="flex items-center gap-4 text-sm">
             <Link href="/" className="text-muted-foreground hover:text-foreground">
@@ -35,11 +33,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <footer className="border-t bg-background/80">
         <div className="mx-auto flex h-12 max-w-7xl items-center justify-between px-4">
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-violet-600">
-              <span className="text-[10px] font-bold text-white">P</span>
-            </div>
+            <PadvikLogo size="xs" />
             <span className="text-xs text-muted-foreground">
-              Padvik by Ensate Technologies
+              by Ensate Technologies
             </span>
           </div>
           <p className="text-xs text-muted-foreground">

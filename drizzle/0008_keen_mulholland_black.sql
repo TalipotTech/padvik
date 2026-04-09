@@ -1,0 +1,1 @@
+ALTER TABLE "topic_mappings" ADD CONSTRAINT "uq_topic_mappings_source_target" UNIQUE("source_topic_id","target_topic_id");

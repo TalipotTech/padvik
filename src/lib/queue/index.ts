@@ -107,6 +107,18 @@ export interface DikshaIngestJobData {
   medium?: string;
 }
 
+export interface NotificationScrapeJobData {
+  boardCode?: string;
+}
+
+export interface FoundationGenerateJobData {
+  topicIds?: number[];
+  boardCodes?: string[];
+  grades?: number[];
+  batchSize?: number;
+  dryRun?: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Queue instances (lazy-initialized singletons)
 // ---------------------------------------------------------------------------
@@ -118,6 +130,8 @@ let _keralaQueue: Queue<KeralaScrapeJobData> | null = null;
 let _stateBoardQueue: Queue<StateBoardScrapeJobData> | null = null;
 let _contentGenQueue: Queue<ContentGenerateJobData> | null = null;
 let _ncertQueue: Queue<NcertDownloadJobData> | null = null;
+let _notificationQueue: Queue<NotificationScrapeJobData> | null = null;
+let _foundationQueue: Queue<FoundationGenerateJobData> | null = null;
 
 export function getScrapeQueue(): Queue<ScrapeJobData> {
   if (!_scrapeQueue) {
@@ -238,6 +252,41 @@ export function getDikshaQueue(): Queue<DikshaIngestJobData> {
   return _dikshaQueue;
 }
 
+export function getNotificationQueue(): Queue<NotificationScrapeJobData> {
+  if (!_notificationQueue) {
+    _notificationQueue = new Queue<NotificationScrapeJobData>(
+      "notification-scrape",
+      {
+        connection: getRedisConnection(),
+        defaultJobOptions: {
+          attempts: 2,
+          backoff: { type: "exponential", delay: 10000 },
+          removeOnComplete: { count: 50 },
+          removeOnFail: { count: 100 },
+        },
+      }
+    );
+  }
+  return _notificationQueue;
+}
+
+export function getFoundationQueue(): Queue<FoundationGenerateJobData> {
+  if (!_foundationQueue) {
+    _foundationQueue = new Queue<FoundationGenerateJobData>(
+      "foundation-generate",
+      {
+        connection: getRedisConnection(),
+        defaultJobOptions: {
+          attempts: 1, // Don't retry AI generation — wastes tokens
+          removeOnComplete: { count: 50 },
+          removeOnFail: { count: 100 },
+        },
+      }
+    );
+  }
+  return _foundationQueue;
+}
+
 // ---------------------------------------------------------------------------
 // Helper functions to add jobs
 // ---------------------------------------------------------------------------
@@ -314,6 +363,49 @@ export async function addDikshaIngestJob(data: DikshaIngestJobData): Promise<str
     `diksha-ingest-${data.boardCode}-${data.gradeStart}-${data.gradeEnd}`,
     data,
     { priority: data.boardCode === "CBSE" ? 1 : 2 }
+  );
+  return job.id ?? "";
+}
+
+export async function addNotificationScrapeJob(
+  data: NotificationScrapeJobData = {}
+): Promise<string> {
+  const queue = getNotificationQueue();
+  const job = await queue.add(
+    `notification-scrape-${data.boardCode ?? "all"}`,
+    data,
+    { priority: 5 }
+  );
+  return job.id ?? "";
+}
+
+/**
+ * Register the recurring notification scrape cron job.
+ * Should be called once at worker startup.
+ */
+export async function registerNotificationCron(): Promise<void> {
+  const queue = getNotificationQueue();
+  // Remove any existing repeatable jobs first
+  const existing = await queue.getRepeatableJobs();
+  for (const job of existing) {
+    await queue.removeRepeatableByKey(job.key);
+  }
+  // Every 3 hours
+  await queue.add("scrape-notifications-cron", {}, {
+    repeat: { pattern: "0 */3 * * *" },
+    priority: 5,
+  });
+  console.log("[NotificationQueue] Registered cron: every 3 hours");
+}
+
+export async function addFoundationJob(
+  data: FoundationGenerateJobData = {}
+): Promise<string> {
+  const queue = getFoundationQueue();
+  const job = await queue.add(
+    `foundation-gen-${Date.now()}`,
+    data,
+    { priority: 5 }
   );
   return job.id ?? "";
 }

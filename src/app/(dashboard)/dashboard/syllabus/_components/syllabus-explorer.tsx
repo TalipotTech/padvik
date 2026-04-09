@@ -98,9 +98,18 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
   } | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
   const [pdfPopupPath, setPdfPopupPath] = useState<string | null>(null);
+  // Foundation popup state
+  const [foundationLoading, setFoundationLoading] = useState(false);
+  const [foundationContent, setFoundationContent] = useState<{ title: string; body: string; cached: boolean; prerequisiteCount: number } | null>(null);
+  const [foundationOpen, setFoundationOpen] = useState(false);
   const [gapInfo, setGapInfo] = useState<{ totalTopics: number; topicsMissing: number; estimatedCostUsd: number } | null>(null);
   const [filling, setFilling] = useState(false);
   const [fillResult, setFillResult] = useState<{ processed: number; totalCostUsd: number; errors: string[] } | null>(null);
+
+  // Topic-level progress for the selected subject
+  const [topicProgress, setTopicProgress] = useState<Record<number, { percent: number; understanding: string | null }>>({});
+  // Per-subject progress summary (for the dropdown)
+  const [subjectProgressMap, setSubjectProgressMap] = useState<Record<number, number>>({});
 
   const { data: subjects, loading: subjectsLoading } = useData(
     () => boardId && grade ? getSubjects(boardId, grade) : Promise.resolve([]),
@@ -117,6 +126,43 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
       setSelectedSubjectId(subjects[0].id);
     }
   }, [subjects, selectedSubjectId]);
+
+  // Fetch topic progress when subject changes
+  useEffect(() => {
+    if (!selectedSubjectId) return;
+    fetch(`/api/learn/progress?subjectId=${selectedSubjectId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (json?.success) setTopicProgress(json.data.topics ?? {});
+      })
+      .catch(() => {});
+  }, [selectedSubjectId]);
+
+  // Fetch progress summaries for all subjects (for dropdown color coding)
+  useEffect(() => {
+    if (!subjects || subjects.length === 0) return;
+    const map: Record<number, number> = {};
+    let completed = 0;
+    const total = subjects.length;
+
+    for (const s of subjects as Subject[]) {
+      fetch(`/api/learn/progress?subjectId=${s.id}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => {
+          if (json?.success) {
+            const topics = json.data.topics as Record<string, { percent: number }>;
+            const ids = Object.keys(topics);
+            const avg = ids.length > 0
+              ? Math.round(ids.reduce((sum, id) => sum + topics[id].percent, 0) / ids.length)
+              : 0;
+            map[s.id] = avg;
+          }
+          completed++;
+          if (completed >= total) setSubjectProgressMap({ ...map });
+        })
+        .catch(() => { completed++; });
+    }
+  }, [subjects]);
 
   // Fetch content gap info for selected subject (admin only)
   useEffect(() => {
@@ -178,6 +224,38 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
       setContentLoading(false);
     }
   }, []);
+
+  // Foundation builder
+  async function handleBuildFoundations() {
+    if (!selectedTopicId) return;
+    setFoundationLoading(true);
+    try {
+      // Check for existing
+      const checkRes = await fetch(`/api/learn/foundations?topicId=${selectedTopicId}`);
+      const checkJson = await checkRes.json();
+      if (checkJson.success && checkJson.data) {
+        setFoundationContent({ title: checkJson.data.title, body: checkJson.data.body, cached: true, prerequisiteCount: 0 });
+        setFoundationOpen(true);
+        setFoundationLoading(false);
+        return;
+      }
+      // Generate
+      const res = await fetch("/api/learn/foundations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topicId: selectedTopicId }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setFoundationContent({ title: json.data.title, body: json.data.body, cached: json.data.cached, prerequisiteCount: json.data.prerequisiteCount });
+        setFoundationOpen(true);
+      }
+    } catch (err) {
+      console.error("Foundation build failed:", err);
+    } finally {
+      setFoundationLoading(false);
+    }
+  }
 
   // Navigation functions
   async function fillGaps() {
@@ -281,13 +359,23 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
 
         <Separator orientation="vertical" className="h-5" />
 
-        {/* Subject selector */}
-        <Select value={selectedSubjectId?.toString() ?? ""} onValueChange={(v) => { setSelectedSubjectId(Number(v)); setSelectedTopicId(null); setTopicContent(null); setSearchQuery(""); }}>
-          <SelectTrigger className="h-8 w-[200px] text-xs"><SelectValue placeholder="Select Subject" /></SelectTrigger>
+        {/* Subject selector with progress */}
+        <Select value={selectedSubjectId?.toString() ?? ""} onValueChange={(v) => { setSelectedSubjectId(Number(v)); setSelectedTopicId(null); setTopicContent(null); setSearchQuery(""); setTopicProgress({}); }}>
+          <SelectTrigger className="h-8 w-[240px] text-xs"><SelectValue placeholder="Select Subject" /></SelectTrigger>
           <SelectContent>
-            {(subjects ?? []).map((s: Subject) => (
-              <SelectItem key={s.id} value={s.id.toString()}>{s.name} ({s.chapters.length} ch)</SelectItem>
-            ))}
+            {(subjects ?? []).map((s: Subject) => {
+              const pct = subjectProgressMap[s.id] ?? 0;
+              const dotColor = pct >= 80 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : pct > 0 ? "bg-blue-500" : "bg-gray-300";
+              return (
+                <SelectItem key={s.id} value={s.id.toString()}>
+                  <span className="flex items-center gap-2">
+                    <span className={`h-2 w-2 rounded-full shrink-0 ${dotColor}`} />
+                    <span>{s.name} ({s.chapters.length} ch)</span>
+                    {pct > 0 && <span className="text-[10px] text-muted-foreground tabular-nums">{pct}%</span>}
+                  </span>
+                </SelectItem>
+              );
+            })}
           </SelectContent>
         </Select>
 
@@ -394,20 +482,34 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
                         {/* Topics */}
                         {isExpanded && (
                           <div className="ml-3 border-l pl-2 space-y-0.5">
-                            {chapter.topics.map((topic: Topic) => (
-                              <button
-                                key={topic.id}
-                                onClick={() => loadTopicContent(topic.id)}
-                                className={`flex items-center gap-1.5 w-full rounded px-2 py-1 text-left text-[11px] transition-colors ${
-                                  selectedTopicId === topic.id
-                                    ? "bg-primary/10 text-primary font-medium"
-                                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                                }`}
-                              >
-                                <FileText className="h-3 w-3 shrink-0" />
-                                <span className="truncate">{topic.title}</span>
-                              </button>
-                            ))}
+                            {chapter.topics.map((topic: Topic) => {
+                              const tp = topicProgress[topic.id];
+                              const pct = tp?.percent ?? 0;
+                              const und = tp?.understanding;
+                              let dotColor = "bg-gray-300 dark:bg-gray-600";
+                              if (und === "green") dotColor = "bg-emerald-500";
+                              else if (und === "orange") dotColor = "bg-amber-500";
+                              else if (und === "red") dotColor = "bg-red-500";
+                              else if (pct >= 80) dotColor = "bg-emerald-500";
+                              else if (pct >= 40) dotColor = "bg-amber-500";
+                              else if (pct > 0) dotColor = "bg-blue-500";
+
+                              return (
+                                <button
+                                  key={topic.id}
+                                  onClick={() => loadTopicContent(topic.id)}
+                                  className={`flex items-center gap-1.5 w-full rounded px-2 py-1 text-left text-[11px] transition-colors ${
+                                    selectedTopicId === topic.id
+                                      ? "bg-primary/10 text-primary font-medium"
+                                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                                  }`}
+                                >
+                                  <span className={`h-2 w-2 rounded-full shrink-0 ${dotColor}`} title={pct > 0 ? `${pct}%` : "Not started"} />
+                                  <span className="truncate flex-1">{topic.title}</span>
+                                  {pct > 0 && <span className="text-[9px] tabular-nums text-muted-foreground/70 shrink-0">{pct}%</span>}
+                                </button>
+                              );
+                            })}
                           </div>
                         )}
                       </div>
@@ -469,6 +571,16 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
                         <GraduationCap className="mr-0.5 h-3 w-3" /> Playground
                       </Badge>
                     </Link>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-[10px] gap-1"
+                      disabled={foundationLoading}
+                      onClick={handleBuildFoundations}
+                    >
+                      {foundationLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Layers className="h-3 w-3" />}
+                      {foundationLoading ? "Building..." : "Build Foundations"}
+                    </Button>
                   </div>
                 </div>
 
@@ -556,6 +668,40 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Foundation Builder Popup */}
+      {foundationOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm" onClick={() => setFoundationOpen(false)}>
+          <div
+            className="absolute inset-4 sm:inset-8 lg:inset-y-8 lg:inset-x-[10%] rounded-xl bg-background border shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b px-6 py-4 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-900/30">
+                  <Layers className="h-5 w-5 text-violet-600" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold truncate">{foundationContent?.title ?? "Foundations"}</h2>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {foundationContent?.cached && <Badge variant="outline" className="text-xs">Shared Content</Badge>}
+                  </div>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setFoundationOpen(false)}>
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              {foundationContent?.body && (
+                <div className="mx-auto max-w-3xl">
+                  <MarkdownRenderer content={foundationContent.body} className="prose-sm max-w-none" />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

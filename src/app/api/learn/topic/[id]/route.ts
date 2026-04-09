@@ -5,7 +5,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { topics, chapters, subjects, standards, boards } from "@/db/schema/curriculum";
 import { contentItems } from "@/db/schema/content";
 import { questions } from "@/db/schema/questions";
-import { readingProgress, userBookmarks } from "@/db/schema/learn";
+import { readingProgress, userBookmarks, topicUnderstanding } from "@/db/schema/learn";
 
 /**
  * GET /api/learn/topic/[id]
@@ -73,16 +73,17 @@ export async function GET(
   // Admin/dev: show ALL content. Students: only published.
   const isAdmin = session?.user?.role === "admin" || (process.env.NODE_ENV === "development" && !session);
 
+  // Exclude 'foundation' content — that's shown only in the popup
   const content = isAdmin
     ? await db
         .select()
         .from(contentItems)
-        .where(eq(contentItems.topicId, topicId))
+        .where(and(eq(contentItems.topicId, topicId), sql`${contentItems.contentType} != 'foundation'`))
         .orderBy(contentItems.contentType, contentItems.createdAt)
     : await db
         .select()
         .from(contentItems)
-        .where(and(eq(contentItems.topicId, topicId), eq(contentItems.isPublished, true)))
+        .where(and(eq(contentItems.topicId, topicId), eq(contentItems.isPublished, true), sql`${contentItems.contentType} != 'foundation'`))
         .orderBy(contentItems.contentType, contentItems.createdAt);
 
   // For admin, no separate pending query needed — all content is in `content`
@@ -147,6 +148,64 @@ export async function GET(
     isBookmarked = !!bm;
   }
 
+  // Get per-topic progress for all topics in this subject (for sidebar indicators)
+  const topicProgressMap: Record<number, { percent: number; understanding: string | null }> = {};
+  if (userId) {
+    // Reading progress per topic
+    const progressRows = await db.execute<{
+      topic_id: number; completion_percent: number;
+    }>(sql`
+      SELECT ci.topic_id, MAX(rp.completion_percent) AS completion_percent
+      FROM reading_progress rp
+      JOIN content_items ci ON ci.id = rp.content_item_id
+      JOIN chapters ch ON ch.id = (SELECT chapter_id FROM topics WHERE id = ci.topic_id)
+      WHERE rp.user_id = ${userId} AND ch.subject_id = ${topic.subjectId}
+      GROUP BY ci.topic_id
+    `);
+    for (const row of progressRows) {
+      topicProgressMap[row.topic_id] = { percent: row.completion_percent ?? 0, understanding: null };
+    }
+
+    // Understanding levels
+    const understandingRows = await db.execute<{
+      topic_id: number; understanding_level: string;
+    }>(sql`
+      SELECT tu.topic_id, tu.understanding_level
+      FROM topic_understanding tu
+      JOIN topics t ON t.id = tu.topic_id
+      JOIN chapters ch ON ch.id = t.chapter_id
+      WHERE tu.user_id = ${userId} AND ch.subject_id = ${topic.subjectId}
+    `);
+    for (const row of understandingRows) {
+      if (!topicProgressMap[row.topic_id]) {
+        topicProgressMap[row.topic_id] = { percent: 0, understanding: row.understanding_level };
+      } else {
+        topicProgressMap[row.topic_id].understanding = row.understanding_level;
+      }
+    }
+
+    // Also mark topics that have notes/chats/videos as "visited" (at least 10%)
+    const visitedRows = await db.execute<{ topic_id: number }>(sql`
+      SELECT DISTINCT topic_id FROM (
+        SELECT topic_id FROM user_notes WHERE user_id = ${userId} AND topic_id IS NOT NULL
+        UNION
+        SELECT topic_id FROM topic_conversations WHERE user_id = ${userId}
+        UNION
+        SELECT topic_id FROM user_videos WHERE user_id = ${userId}
+      ) visited
+      JOIN topics t ON t.id = visited.topic_id
+      JOIN chapters ch ON ch.id = t.chapter_id
+      WHERE ch.subject_id = ${topic.subjectId}
+    `);
+    for (const row of visitedRows) {
+      if (!topicProgressMap[row.topic_id]) {
+        topicProgressMap[row.topic_id] = { percent: 10, understanding: null };
+      } else if (topicProgressMap[row.topic_id].percent < 10) {
+        topicProgressMap[row.topic_id].percent = 10;
+      }
+    }
+  }
+
   // Get chapter TOC for sidebar
   const chapterTopics = await db
     .select({
@@ -167,7 +226,7 @@ export async function GET(
     id: number;
     number: number;
     title: string;
-    topics: Array<{ id: number; title: string; sortOrder: number }>;
+    topics: Array<{ id: number; title: string; sortOrder: number; progress: number; understanding: string | null }>;
   }> = [];
 
   for (const ct of chapterTopics) {
@@ -176,7 +235,14 @@ export async function GET(
       chapter = { id: ct.chapterId, number: ct.chapterNumber, title: ct.chapterTitle, topics: [] };
       chapterTree.push(chapter);
     }
-    chapter.topics.push({ id: ct.topicId, title: ct.topicTitle, sortOrder: ct.topicSortOrder });
+    const tp = topicProgressMap[ct.topicId];
+    chapter.topics.push({
+      id: ct.topicId,
+      title: ct.topicTitle,
+      sortOrder: ct.topicSortOrder,
+      progress: tp?.percent ?? 0,
+      understanding: tp?.understanding ?? null,
+    });
   }
 
   return NextResponse.json({

@@ -11,8 +11,10 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+// Dialog import removed — using custom fullscreen overlay for foundations
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
 import { ContentViewToggle } from "@/components/content/content-view-toggle";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
   BookOpen, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Clock,
   FileText, HelpCircle, Loader2, MessageSquare, Search, Send, CheckCircle2,
@@ -42,7 +44,7 @@ interface TopicData {
   questionCount: number;
   relatedTopics: Array<{ id: number; title: string }>;
   navigation: { prev: { id: number; title: string } | null; next: { id: number; title: string } | null };
-  chapterTree: Array<{ id: number; number: number; title: string; topics: Array<{ id: number; title: string }> }>;
+  chapterTree: Array<{ id: number; number: number; title: string; topics: Array<{ id: number; title: string; progress?: number; understanding?: string | null }> }>;
   progress: { completionPercent: number; sectionsRead: string[] } | null;
   isBookmarked: boolean;
 }
@@ -72,6 +74,7 @@ export function LearnView({ topicId }: { topicId: number }) {
 
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [rightPanel, setRightPanel] = useState<string | null>(initialPanel);
   const [panelSize, setPanelSize] = useState<"normal" | "wide" | "overlay">("normal");
   const [isBookmarked, setIsBookmarked] = useState(false);
@@ -89,6 +92,14 @@ export function LearnView({ topicId }: { topicId: number }) {
   // Notes state
   const [notes, setNotes] = useState<UserNote[]>([]);
   const [newNote, setNewNote] = useState("");
+
+  // Foundations state
+  const [foundationLoading, setFoundationLoading] = useState(false);
+  const [foundationContent, setFoundationContent] = useState<{ title: string; body: string; cached: boolean; prerequisiteCount: number } | null>(null);
+  const [foundationOpen, setFoundationOpen] = useState(false);
+
+  // Topic progress for sidebar (fetched from dedicated progress API)
+  const [sidebarProgress, setSidebarProgress] = useState<Record<number, { percent: number; understanding: string | null }>>({});
 
   // Videos state
   const [videos, setVideos] = useState<UserVideo[]>([]);
@@ -144,6 +155,22 @@ export function LearnView({ topicId }: { topicId: number }) {
   }, [topicId]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Store last visited topic for Playground nav link
+  useEffect(() => {
+    try { localStorage.setItem("padvik-last-topic", String(topicId)); } catch { /* ignore */ }
+  }, [topicId]);
+
+  // Fetch sidebar progress from dedicated endpoint once we know the subject
+  useEffect(() => {
+    if (!data?.topic?.subject?.id) return;
+    fetch(`/api/learn/progress?subjectId=${data.topic.subject.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (json?.success) setSidebarProgress(json.data.topics ?? {});
+      })
+      .catch(() => {});
+  }, [data?.topic?.subject?.id]);
 
   // Load understanding level
   useEffect(() => {
@@ -268,6 +295,49 @@ export function LearnView({ topicId }: { topicId: number }) {
   async function deleteNote(id: number) {
     await fetch(`/api/learn/notes?id=${id}`, { method: "DELETE" });
     setNotes((prev) => prev.filter((n) => n.id !== id));
+  }
+
+  async function handleBuildFoundations() {
+    // First try GET to check for existing shared content
+    setFoundationLoading(true);
+    try {
+      const checkRes = await fetch(`/api/learn/foundations?topicId=${topicId}`);
+      const checkJson = await checkRes.json();
+
+      if (checkJson.success && checkJson.data) {
+        // Shared content exists — show it
+        setFoundationContent({
+          title: checkJson.data.title,
+          body: checkJson.data.body,
+          cached: true,
+          prerequisiteCount: 0,
+        });
+        setFoundationOpen(true);
+        setFoundationLoading(false);
+        return;
+      }
+
+      // No shared content — generate via POST
+      const res = await fetch("/api/learn/foundations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topicId }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setFoundationContent({
+          title: json.data.title,
+          body: json.data.body,
+          cached: json.data.cached,
+          prerequisiteCount: json.data.prerequisiteCount,
+        });
+        setFoundationOpen(true);
+      }
+    } catch (err) {
+      console.error("Foundation build failed:", err);
+    } finally {
+      setFoundationLoading(false);
+    }
   }
 
   async function addVideo() {
@@ -446,7 +516,7 @@ export function LearnView({ topicId }: { topicId: number }) {
   return (
     <div className="flex h-[calc(100vh-8rem)] gap-0 -mx-4 lg:-mx-6 -my-4 lg:-my-6">
 
-      {/* ======= LEFT SIDEBAR — Chapter TOC ======= */}
+      {/* ======= LEFT SIDEBAR — Chapter TOC (desktop) ======= */}
       {sidebarOpen && (
         <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r bg-card">
           <div className="flex items-center justify-between border-b px-3 py-2">
@@ -461,14 +531,27 @@ export function LearnView({ topicId }: { topicId: number }) {
               {chapterTree.map((ch) => (
                 <div key={ch.id}>
                   <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Ch {ch.number}: {ch.title}</div>
-                  {ch.topics.map((t) => (
-                    <Link key={t.id} href={`/dashboard/learn/${t.id}`}>
-                      <div className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors ${t.id === topicId ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50"}`}>
-                        <FileText className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{t.title}</span>
-                      </div>
-                    </Link>
-                  ))}
+                  {ch.topics.map((t) => {
+                    const sp = sidebarProgress[t.id];
+                    const pct = sp?.percent ?? 0;
+                    const und = sp?.understanding ?? null;
+                    let dotColor = "bg-gray-300 dark:bg-gray-600";
+                    if (und === "green") dotColor = "bg-emerald-500";
+                    else if (und === "orange") dotColor = "bg-amber-500";
+                    else if (und === "red") dotColor = "bg-red-500";
+                    else if (pct >= 80) dotColor = "bg-emerald-500";
+                    else if (pct >= 40) dotColor = "bg-amber-500";
+                    else if (pct > 0) dotColor = "bg-blue-500";
+                    return (
+                      <Link key={t.id} href={`/dashboard/learn/${t.id}`}>
+                        <div className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors ${t.id === topicId ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50"}`}>
+                          <span className={`h-2 w-2 rounded-full shrink-0 ${dotColor}`} title={pct > 0 ? `${pct}%` : "Not started"} />
+                          <span className="truncate flex-1">{t.title}</span>
+                          {pct > 0 && <span className="text-[9px] tabular-nums text-muted-foreground/70 shrink-0">{pct}%</span>}
+                        </div>
+                      </Link>
+                    );
+                  })}
                 </div>
               ))}
             </div>
@@ -479,17 +562,59 @@ export function LearnView({ topicId }: { topicId: number }) {
         </aside>
       )}
 
+      {/* ======= MOBILE SIDEBAR — Sheet drawer ======= */}
+      <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+        <SheetContent side="left" className="w-72 p-0">
+          <SheetTitle className="px-3 py-2 text-xs font-semibold border-b">
+            {topic.subject.name} · {topic.board.code} Class {topic.grade}
+          </SheetTitle>
+          <ScrollArea className="h-[calc(100vh-4rem)]">
+            <div className="p-1.5 space-y-0.5">
+              {chapterTree.map((ch) => (
+                <div key={ch.id}>
+                  <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Ch {ch.number}: {ch.title}</div>
+                  {ch.topics.map((t) => {
+                    const sp = sidebarProgress[t.id];
+                    const pct = sp?.percent ?? 0;
+                    const und = sp?.understanding ?? null;
+                    let dotColor = "bg-gray-300 dark:bg-gray-600";
+                    if (und === "green") dotColor = "bg-emerald-500";
+                    else if (und === "orange") dotColor = "bg-amber-500";
+                    else if (und === "red") dotColor = "bg-red-500";
+                    else if (pct >= 80) dotColor = "bg-emerald-500";
+                    else if (pct >= 40) dotColor = "bg-amber-500";
+                    else if (pct > 0) dotColor = "bg-blue-500";
+                    return (
+                      <Link key={t.id} href={`/dashboard/learn/${t.id}`} onClick={() => setMobileSidebarOpen(false)}>
+                        <div className={`flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors ${t.id === topicId ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted/50"}`}>
+                          <span className={`h-2 w-2 rounded-full shrink-0 ${dotColor}`} />
+                          <span className="truncate flex-1">{t.title}</span>
+                          {pct > 0 && <span className="text-[9px] tabular-nums text-muted-foreground/70 shrink-0">{pct}%</span>}
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </SheetContent>
+      </Sheet>
+
       {/* ======= MAIN AREA ======= */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Top toolbar */}
-        <div className="flex items-center justify-between border-b px-3 py-1.5 shrink-0 bg-card gap-2">
-          <div className="flex items-center gap-1.5">
-            {!sidebarOpen && <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setSidebarOpen(true)}><BookOpen className="h-3.5 w-3.5" /></Button>}
-            <Link href="/dashboard/learn"><Button variant="ghost" size="sm" className="h-7 text-xs"><ArrowLeft className="mr-1 h-3 w-3" />My Learning</Button></Link>
-            <span className="text-[10px] text-muted-foreground truncate max-w-[200px] hidden sm:inline">{topic.subject.name} · Ch {topic.chapter.number}</span>
+        {/* Top toolbar — row 1: navigation + key actions */}
+        <div className="flex items-center justify-between border-b px-2 py-1 shrink-0 bg-card gap-1">
+          <div className="flex items-center gap-1">
+            {/* Mobile: chapter sidebar toggle */}
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 lg:hidden" onClick={() => setMobileSidebarOpen(true)}><Layers className="h-3.5 w-3.5" /></Button>
+            {/* Desktop: sidebar toggle */}
+            {!sidebarOpen && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 hidden lg:flex" onClick={() => setSidebarOpen(true)}><BookOpen className="h-3.5 w-3.5" /></Button>}
+            <Link href="/dashboard/learn"><Button variant="ghost" size="sm" className="h-7 text-xs px-1.5"><ArrowLeft className="mr-0.5 h-3 w-3" /><span className="hidden sm:inline">My Learning</span></Button></Link>
+            <span className="text-[10px] text-muted-foreground truncate max-w-[120px] hidden md:inline">{topic.subject.name} · Ch {topic.chapter.number}</span>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             {/* Understanding rating */}
             <div className="flex items-center gap-0.5 border rounded-md px-1 py-0.5">
               {(["red", "orange", "green"] as const).map((color) => (
@@ -499,28 +624,30 @@ export function LearnView({ topicId }: { topicId: number }) {
                 </button>
               ))}
             </div>
-            <Separator orientation="vertical" className="h-5 mx-1" />
             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={toggleBookmark}>
               {isBookmarked ? <BookmarkCheck className="h-4 w-4 text-violet-600" /> : <Bookmark className="h-4 w-4" />}
             </Button>
-            {/* Right panel toggles */}
-            {(["chat", "notes", "exercises", "pyqs", "exam", "videos"] as const).map((tab) => (
-              <Button key={tab} variant={rightPanel === tab ? "default" : "ghost"} size="sm" className="h-7 text-[10px] px-2"
-                onClick={() => { setRightPanel(rightPanel === tab ? null : tab); if (tab === "exercises" && exercises.length === 0) loadExercises(); if (tab === "pyqs" && pyqs.length === 0) loadPyqs(); }}>
-                {tab === "chat" && <><MessageSquare className="h-3 w-3 mr-0.5" />AI</>}
-                {tab === "notes" && <><StickyNote className="h-3 w-3 mr-0.5" />Notes</>}
-                {tab === "exercises" && <><Play className="h-3 w-3 mr-0.5" />Test</>}
-                {tab === "pyqs" && <><HelpCircle className="h-3 w-3 mr-0.5" />PYQ</>}
-                {tab === "exam" && <><GraduationCap className="h-3 w-3 mr-0.5" />Exam</>}
-                {tab === "videos" && <><Video className="h-3 w-3 mr-0.5" />Video</>}
-              </Button>
-            ))}
-            {/* Navigation */}
-            <Separator orientation="vertical" className="h-5 mx-1" />
-            <span className="text-[10px] text-muted-foreground">{currentIdx + 1}/{allTopics.length}</span>
+            <Separator orientation="vertical" className="h-5 mx-0.5" />
+            {/* Navigation prev/next */}
+            <span className="text-[10px] text-muted-foreground tabular-nums">{currentIdx + 1}/{allTopics.length}</span>
             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={currentIdx <= 0} onClick={() => { if (currentIdx > 0) window.location.href = `/dashboard/learn/${allTopics[currentIdx - 1].id}`; }}><ChevronLeft className="h-3.5 w-3.5" /></Button>
             <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={currentIdx >= allTopics.length - 1} onClick={() => { if (currentIdx < allTopics.length - 1) window.location.href = `/dashboard/learn/${allTopics[currentIdx + 1].id}`; }}><ChevronRight className="h-3.5 w-3.5" /></Button>
           </div>
+        </div>
+
+        {/* Top toolbar — row 2: panel toggles (scrollable on mobile) */}
+        <div className="flex items-center gap-1 border-b px-2 py-1 shrink-0 bg-card overflow-x-auto scrollbar-none">
+          {(["chat", "notes", "exercises", "pyqs", "exam", "videos"] as const).map((tab) => (
+            <Button key={tab} variant={rightPanel === tab ? "default" : "ghost"} size="sm" className="h-7 text-[10px] px-2 shrink-0"
+              onClick={() => { setRightPanel(rightPanel === tab ? null : tab); if (tab === "exercises" && exercises.length === 0) loadExercises(); if (tab === "pyqs" && pyqs.length === 0) loadPyqs(); }}>
+              {tab === "chat" && <><MessageSquare className="h-3 w-3 mr-0.5" />AI</>}
+              {tab === "notes" && <><StickyNote className="h-3 w-3 mr-0.5" />Notes</>}
+              {tab === "exercises" && <><Play className="h-3 w-3 mr-0.5" />Test</>}
+              {tab === "pyqs" && <><HelpCircle className="h-3 w-3 mr-0.5" />PYQ</>}
+              {tab === "exam" && <><GraduationCap className="h-3 w-3 mr-0.5" />Exam</>}
+              {tab === "videos" && <><Video className="h-3 w-3 mr-0.5" />Video</>}
+            </Button>
+          ))}
         </div>
 
         <div className="flex flex-1 overflow-hidden">
@@ -543,6 +670,16 @@ export function LearnView({ topicId }: { topicId: number }) {
                   )}
                 </div>
                 {topic.description && <p className="text-sm text-muted-foreground mt-2">{topic.description}</p>}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3 gap-1.5"
+                  disabled={foundationLoading}
+                  onClick={handleBuildFoundations}
+                >
+                  {foundationLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}
+                  {foundationLoading ? "Building..." : "Build Foundations"}
+                </Button>
               </div>
 
               <Separator className="mb-5" />
@@ -569,7 +706,7 @@ export function LearnView({ topicId }: { topicId: number }) {
                           const videoId = v.youtubeUrl.match(/(?:v=|youtu\.be\/|\/live\/|\/shorts\/|\/embed\/)([a-zA-Z0-9_-]{11})/)?.[1];
                           return (
                             <div key={v.id} className="relative rounded-lg overflow-hidden border">
-                              {videoId && <iframe src={`https://www.youtube.com/embed/${videoId}`} className="w-full aspect-video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />}
+                              {videoId && <div className="relative w-full" style={{ paddingBottom: "56.25%" }}><iframe src={`https://www.youtube.com/embed/${videoId}`} className="absolute inset-0 w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /></div>}
                               <div className="flex items-center justify-between px-2 py-1 bg-muted/50">
                                 <span className="text-[10px] truncate">{v.title ?? v.youtubeUrl}</span>
                                 <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => deleteVideo(v.id)}><Trash2 className="h-3 w-3 text-muted-foreground" /></Button>
@@ -650,9 +787,9 @@ export function LearnView({ topicId }: { topicId: number }) {
 
           {/* ======= RIGHT PANEL (resizable + overlay) ======= */}
           {rightPanel && (
-            <aside className={`shrink-0 flex flex-col border-l bg-card transition-all duration-200 ${
-              panelSize === "overlay" ? "fixed right-0 top-0 bottom-0 z-50 w-[600px] shadow-2xl" :
-              panelSize === "wide" ? "w-[480px]" : "w-80"
+            <aside className={`shrink-0 flex flex-col border-l bg-card transition-all duration-200 overflow-hidden min-w-0 ${
+              panelSize === "overlay" ? "fixed right-0 top-0 bottom-0 z-50 w-[600px] max-w-[90vw] shadow-2xl" :
+              panelSize === "wide" ? "w-[480px] max-w-[50vw]" : "w-80 max-w-[85vw]"
             }`}>
               {/* Panel overlay backdrop */}
               {panelSize === "overlay" && <div className="fixed inset-0 bg-black/30 z-[-1]" onClick={() => setPanelSize("normal")} />}
@@ -815,7 +952,7 @@ export function LearnView({ topicId }: { topicId: number }) {
                       </Button>
                     </div>
                   </div>
-                  <ScrollArea className="flex-1 p-3">
+                  <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 min-w-0">
                     {/* Suggested videos from YouTube */}
                     {suggestedVideos.length > 0 && (
                       <div className="mb-4">
@@ -823,7 +960,7 @@ export function LearnView({ topicId }: { topicId: number }) {
                         <div className="space-y-2">
                           {suggestedVideos.map((sv) => (
                             <div key={sv.videoId} className="rounded-lg border overflow-hidden">
-                              <iframe src={`https://www.youtube.com/embed/${sv.videoId}`} className="w-full aspect-video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                              <div className="relative w-full" style={{ paddingBottom: "56.25%" }}><iframe src={`https://www.youtube.com/embed/${sv.videoId}`} className="absolute inset-0 w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /></div>
                               <div className="px-2 py-1.5">
                                 <div className="text-[10px] font-medium line-clamp-2">{sv.title}</div>
                                 <div className="flex items-center gap-2 mt-0.5">
@@ -850,7 +987,7 @@ export function LearnView({ topicId }: { topicId: number }) {
                             const vid = v.youtubeUrl.match(/(?:v=|youtu\.be\/|\/live\/|\/shorts\/|\/embed\/)([a-zA-Z0-9_-]{11})/)?.[1];
                             return (
                               <div key={v.id} className="rounded-lg border overflow-hidden">
-                                {vid && <iframe src={`https://www.youtube.com/embed/${vid}`} className="w-full aspect-video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />}
+                                {vid && <div className="relative w-full" style={{ paddingBottom: "56.25%" }}><iframe src={`https://www.youtube.com/embed/${vid}`} className="absolute inset-0 w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen /></div>}
                                 <div className="flex items-center justify-between px-2 py-1">
                                   <span className="text-[10px] truncate">{v.title ?? "Video"}</span>
                                   <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => deleteVideo(v.id)}><Trash2 className="h-3 w-3" /></Button>
@@ -868,7 +1005,7 @@ export function LearnView({ topicId }: { topicId: number }) {
                         <p className="text-[10px] text-muted-foreground">Click &quot;Suggest&quot; to find videos for this topic</p>
                       </div>
                     )}
-                  </ScrollArea>
+                  </div>
                 </>
               )}
               {/* ---- Exam Panel ---- */}
@@ -988,6 +1125,56 @@ export function LearnView({ topicId }: { topicId: number }) {
           ) : <div />}
         </div>
       </main>
+
+      {/* Foundation Builder Popup — fullscreen overlay with native scroll */}
+      {foundationOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm" onClick={() => setFoundationOpen(false)}>
+          <div
+            className="absolute inset-4 sm:inset-8 lg:inset-y-8 lg:inset-x-[10%] rounded-xl bg-background border shadow-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Sticky header */}
+            <div className="flex items-center justify-between gap-3 border-b px-6 py-4 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-900/30">
+                  <Layers className="h-5 w-5 text-violet-600" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold truncate">
+                    {foundationContent?.title ?? "Foundations"}
+                  </h2>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {foundationContent?.prerequisiteCount ? (
+                      <Badge variant="secondary" className="text-xs">
+                        {foundationContent.prerequisiteCount} prerequisites
+                      </Badge>
+                    ) : null}
+                    {foundationContent?.cached && (
+                      <Badge variant="outline" className="text-xs">Shared Content</Badge>
+                    )}
+                    <span className="text-xs text-muted-foreground">Saved to Study Journal</span>
+                  </div>
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" className="shrink-0" onClick={() => setFoundationOpen(false)}>
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto px-6 py-6">
+              {foundationContent?.body && (
+                <div className="mx-auto max-w-3xl">
+                  <MarkdownRenderer
+                    content={foundationContent.body}
+                    className="prose-sm max-w-none"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

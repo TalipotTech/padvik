@@ -28,17 +28,29 @@ export async function GET(request: NextRequest) {
       id: number; topic_id: number; title: string | null; body: string; note_type: string;
       image_url: string | null; created_at: string; topic_title: string; chapter_title: string;
       chapter_number: number; subject_name: string; subject_id: number; grade: number; board_code: string;
+      tags: string[] | null; is_foundation: boolean;
     }>(sql`
-      SELECT un.id, un.topic_id, un.title, un.body, COALESCE(un.note_type, 'typed') as note_type,
+      SELECT un.id, un.topic_id,
+        COALESCE(ci.title, fc.title, un.title) AS title,
+        COALESCE(ci.body, fc.body, un.body) AS body,
+        COALESCE(un.note_type, 'typed') as note_type,
         un.image_url, un.created_at::text,
         t.title AS topic_title, ch.title AS chapter_title, ch.chapter_number,
-        s.name AS subject_name, s.id AS subject_id, st.grade, b.code AS board_code
+        s.name AS subject_name, s.id AS subject_id, st.grade, b.code AS board_code,
+        un.tags,
+        ('ai-foundations' = ANY(COALESCE(un.tags, '{}'))) AS is_foundation
       FROM user_notes un
       JOIN topics t ON t.id = un.topic_id
       JOIN chapters ch ON ch.id = t.chapter_id
       JOIN subjects s ON s.id = ch.subject_id
       JOIN standards st ON st.id = s.standard_id
       JOIN boards b ON b.id = st.board_id
+      LEFT JOIN content_items ci ON ci.id = un.content_item_id
+      LEFT JOIN LATERAL (
+        SELECT fi.title, fi.body FROM content_items fi
+        WHERE fi.topic_id = un.topic_id AND fi.content_type = 'foundation' AND fi.is_published = true
+        ORDER BY fi.created_at DESC LIMIT 1
+      ) fc ON 'ai-foundations' = ANY(COALESCE(un.tags, '{}')) AND un.content_item_id IS NULL
       WHERE un.user_id = ${userId} ${searchFilter} ${subjectFilter}
       ORDER BY un.created_at DESC
       LIMIT ${limit} OFFSET ${offset}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -78,8 +79,8 @@ export function AuthDialog({ open, onOpenChange, onSwitchToSignUp }: AuthDialogP
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-violet-600">
-            <span className="text-xl font-bold text-white">P</span>
+          <div className="mx-auto mb-2">
+            <Image src="/logo-icon.png" alt="Padvik" width={48} height={48} priority />
           </div>
           <DialogTitle className="text-center text-xl">Welcome back</DialogTitle>
           <p className="text-center text-sm text-muted-foreground">Sign in to continue learning</p>

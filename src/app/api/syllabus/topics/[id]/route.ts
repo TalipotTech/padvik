@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { boards, standards, subjects, chapters, topics } from "@/db/schema/curriculum";
 import { contentItems } from "@/db/schema/content";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // GET /api/syllabus/topics/[id] — Topic with full context + content items
@@ -56,16 +56,18 @@ export async function GET(
   const { topic, chapter, subject, standard, board } = rows[0];
 
   // Admin/dev: show ALL content. Students: only published content.
+  // Exclude 'foundation' content — shown only via Build Foundations popup.
+  const noFoundation = sql`${contentItems.contentType} != 'foundation'`;
   const content = isAdmin || devBypass
     ? await db
         .select()
         .from(contentItems)
-        .where(eq(contentItems.topicId, topicId))
+        .where(and(eq(contentItems.topicId, topicId), noFoundation))
         .orderBy(contentItems.contentType, contentItems.createdAt)
     : await db
         .select()
         .from(contentItems)
-        .where(and(eq(contentItems.topicId, topicId), eq(contentItems.isPublished, true)))
+        .where(and(eq(contentItems.topicId, topicId), eq(contentItems.isPublished, true), noFoundation))
         .orderBy(contentItems.contentType, contentItems.createdAt);
 
   return NextResponse.json({

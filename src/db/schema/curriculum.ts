@@ -133,5 +133,9 @@ export const topicMappings = pgTable(
   (table) => [
     index("idx_topic_mappings_source").on(table.sourceTopicId),
     index("idx_topic_mappings_target").on(table.targetTopicId),
+    unique("uq_topic_mappings_source_target").on(
+      table.sourceTopicId,
+      table.targetTopicId
+    ),
   ]
 );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,8 +50,8 @@ export default function LoginPage() {
   return (
     <Card>
       <CardHeader className="text-center">
-        <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary">
-          <span className="text-xl font-bold text-primary-foreground">P</span>
+        <div className="mx-auto mb-2">
+          <Image src="/logo-icon.png" alt="Padvik" width={48} height={48} priority />
         </div>
         <CardTitle>Welcome back</CardTitle>
         <CardDescription>Sign in to continue learning</CardDescription>

@@ -3,6 +3,7 @@
 import { useBoardSelection } from "@/hooks/use-board-selection";
 import { Badge } from "@/components/ui/badge";
 import { MobileSidebar } from "@/components/layout/sidebar";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 interface HeaderProps {
   user: {
@@ -30,9 +31,9 @@ export function Header({ user, signOutAction }: HeaderProps) {
         )}
       </div>
 
-      {/* Right side — placeholder for notifications, search, etc. */}
+      {/* Right side */}
       <div className="flex items-center gap-2">
-        {/* Future: search, notifications */}
+        <NotificationBell />
       </div>
     </header>
   );

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   Home,
@@ -23,6 +24,8 @@ import {
   Eye,
   CheckSquare,
   BookMarked,
+  Layers,
+  Play,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -57,6 +60,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: Home },
   { href: "/dashboard/syllabus", label: "Curriculum", icon: BookOpen, roles: ["student", "teacher", "admin"] },
   { href: "/dashboard/learn", label: "My Learning", icon: GraduationCap, roles: ["student", "admin"] },
+  { href: "__playground__", label: "Playground", icon: Play, roles: ["student"] },
   { href: "/dashboard/learn/journal", label: "Study Journal", icon: BookMarked, roles: ["student", "admin"] },
   { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, roles: ["teacher", "admin"] },
   { href: "/dashboard/exams", label: "Exams", icon: FileText, roles: ["teacher", "admin"] },
@@ -97,6 +101,15 @@ interface SidebarProps {
   signOutAction: () => Promise<void>;
 }
 
+function getPlaygroundHref(): string {
+  if (typeof window === "undefined") return "/dashboard/learn";
+  try {
+    const stored = localStorage.getItem("padvik-last-topic");
+    if (stored) return `/dashboard/learn/${stored}`;
+  } catch { /* ignore */ }
+  return "/dashboard/learn";
+}
+
 function NavLink({
   item,
   collapsed,
@@ -106,14 +119,19 @@ function NavLink({
   collapsed: boolean;
   pathname: string;
 }) {
+  // Resolve dynamic hrefs
+  const resolvedHref = item.href === "__playground__" ? getPlaygroundHref() : item.href;
+
   const isActive =
-    item.href === "/dashboard"
-      ? pathname === "/dashboard"
-      : pathname.startsWith(item.href);
+    item.href === "__playground__"
+      ? pathname.match(/^\/dashboard\/learn\/\d+/) !== null
+      : item.href === "/dashboard"
+        ? pathname === "/dashboard"
+        : pathname.startsWith(item.href);
 
   const link = (
     <Link
-      href={item.href}
+      href={resolvedHref}
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-10",
         isActive
@@ -174,9 +192,7 @@ function SidebarContent({
         )}
       >
         <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
-            <span className="text-sm font-bold text-primary-foreground">P</span>
-          </div>
+          <Image src="/logo-icon.png" alt="Padvik" width={32} height={32} className="shrink-0" priority />
           {!collapsed && (
             <span className="text-lg font-bold text-foreground">Padvik</span>
           )}

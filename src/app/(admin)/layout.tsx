@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { PadvikLogo } from "@/components/ui/padvik-logo";
 
 const adminNavGroups = [
   { href: "/scrape-jobs", label: "Pipeline" },
@@ -9,6 +10,7 @@ const adminNavGroups = [
   { href: "/question-papers", label: "Questions" },
   { href: "/admin/content-review", label: "Review" },
   { href: "/admin/ai-providers", label: "AI Providers" },
+  { href: "/admin/notification-scraper", label: "Notifications" },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -22,9 +24,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
           <div className="flex items-center gap-4">
             <Link href="/dashboard" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-violet-600">
-                <span className="text-sm font-bold text-white">P</span>
-              </div>
+              <PadvikLogo size="md" showText={false} />
               <span className="font-semibold">Padvik Admin</span>
             </Link>
 

@@ -7,6 +7,8 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import rehypeHighlight from "rehype-highlight";
 import { cn } from "@/lib/utils";
+import { MermaidBlock } from "./mermaid-block";
+import { ImageZoom } from "./image-zoom";
 
 interface MarkdownRendererProps {
   content: string;
@@ -48,8 +50,18 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
             <h4 className="text-base font-semibold text-foreground mt-4 mb-2" {...props}>{children}</h4>
           ),
 
-          // Paragraphs
+          // Paragraphs — detect block-level children to avoid hydration errors
           p: ({ children, ...props }) => {
+            // If paragraph contains an image, render as div (figure/div can't nest inside p)
+            const hasBlockChild = React.Children.toArray(children).some(
+              (child) =>
+                React.isValidElement(child) &&
+                (child.type === "img" || (child.props as Record<string, unknown>)?.src)
+            );
+            if (hasBlockChild) {
+              return <div className="my-2" {...props}>{children}</div>;
+            }
+
             const text = extractText(children);
 
             // Detect definition patterns
@@ -67,8 +79,8 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
               return <div className="my-3 rounded-lg border-l-4 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 p-4"><p className="text-sm leading-relaxed" {...props}>{children}</p></div>;
             }
 
-            // Detect note/important patterns
-            if (text.match(/^(Note|Important|Remember|Caution|Warning|Tip)[:\s]/i)) {
+            // Detect note/important/watch-out patterns
+            if (text.match(/^(Note|Important|Remember|Caution|Warning|Tip|Watch Out)[:\s!]/i)) {
               return <div className="my-3 rounded-lg border-l-4 border-amber-500 bg-amber-50 dark:bg-amber-950/30 p-4"><p className="text-sm leading-relaxed" {...props}>{children}</p></div>;
             }
 
@@ -122,10 +134,21 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
             <td className="px-3 py-2 text-sm border-b" {...props}>{children}</td>
           ),
 
-          // Code blocks
-          pre: ({ children, ...props }) => (
-            <pre className="my-3 rounded-lg bg-gray-900 p-4 overflow-x-auto text-sm" {...props}>{children}</pre>
-          ),
+          // Code blocks — with Mermaid diagram support
+          pre: ({ children, ...props }) => {
+            // Check if child is a mermaid code block
+            const child = React.Children.toArray(children)[0];
+            if (React.isValidElement(child)) {
+              const childProps = child.props as { className?: string; children?: React.ReactNode };
+              if (childProps.className?.includes("language-mermaid")) {
+                const code = extractText(childProps.children);
+                return <MermaidBlock code={code} />;
+              }
+            }
+            return (
+              <pre className="my-3 rounded-lg bg-gray-900 p-4 overflow-x-auto text-sm" {...props}>{children}</pre>
+            );
+          },
           code: ({ children, className: codeClassName, ...props }) => {
             const isBlock = codeClassName?.includes("language-");
             if (isBlock) {
@@ -146,13 +169,11 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps) 
             </div>
           ),
 
-          // Images
-          img: ({ src, alt, ...props }) => (
-            <figure className="my-4">
-              <img src={src} alt={alt} className="rounded-lg border max-w-full mx-auto" {...props} />
-              {alt && <figcaption className="mt-1 text-center text-xs text-muted-foreground italic">{alt}</figcaption>}
-            </figure>
-          ),
+          // Images — with zoom viewer
+          img: ({ src, alt }) => {
+            if (!src || typeof src !== "string") return null;
+            return <ImageZoom src={src} alt={alt ?? undefined} />;
+          },
 
           // Links
           a: ({ children, href, ...props }) => (

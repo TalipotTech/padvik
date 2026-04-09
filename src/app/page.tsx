@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { PadvikLogo } from "@/components/ui/padvik-logo";
 import {
   BookOpen,
   Brain,
@@ -18,6 +19,8 @@ import {
 } from "lucide-react";
 import { AuthDialog } from "@/components/auth/auth-dialog";
 import { SignupDialog } from "@/components/auth/signup-dialog";
+import { BreakingBanner } from "@/components/notifications/BreakingBanner";
+import { BoardUpdatesFeed } from "@/components/notifications/BoardUpdatesFeed";
 
 const FEATURES = [
   {
@@ -77,15 +80,13 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Breaking News Banner */}
+      <BreakingBanner />
+
       {/* Navbar */}
       <nav className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-600">
-              <span className="text-lg font-bold text-white">P</span>
-            </div>
-            <span className="text-xl font-bold">Padvik</span>
-          </div>
+          <PadvikLogo size="lg" />
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" onClick={() => setSignInOpen(true)}>
               Sign In
@@ -97,33 +98,50 @@ export default function HomePage() {
         </div>
       </nav>
 
-      {/* Hero */}
+      {/* Hero Banner */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-background to-blue-50 dark:from-violet-950/20 dark:via-background dark:to-blue-950/20" />
-        <div className="relative mx-auto max-w-7xl px-4 py-24 sm:py-32">
+        {/* Background image — responsive with art direction */}
+        <picture>
+          <source media="(max-width: 480px)" srcSet="/hero/hero-ai-390x500.png" />
+          <source media="(max-width: 768px)" srcSet="/hero/hero-ai-768x400.png" />
+          <source media="(max-width: 1440px)" srcSet="/hero/hero-ai-1440x720.webp" type="image/webp" />
+          <source media="(max-width: 1440px)" srcSet="/hero/hero-ai-1440x720.png" />
+          <source media="(max-width: 1920px)" srcSet="/hero/hero-ai-1920x960.webp" type="image/webp" />
+          <source media="(max-width: 1920px)" srcSet="/hero/hero-ai-1920x960.png" />
+          <img
+            src="/hero/hero-ai-1920x960.png"
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            fetchPriority="high"
+          />
+        </picture>
+        {/* Gradient overlay for text readability */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/20 to-black/50" />
+
+        <div className="relative mx-auto max-w-7xl px-4 py-24 sm:py-32 lg:py-36">
           <div className="mx-auto max-w-3xl text-center">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border bg-muted/50 px-4 py-1.5 text-sm">
-              <Sparkles className="size-4 text-violet-500" />
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 backdrop-blur-sm px-4 py-1.5 text-sm text-white">
+              <Sparkles className="size-4 text-violet-300" />
               AI-powered curriculum learning platform
             </div>
-            <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
+            <h1 className="text-4xl font-bold tracking-tight text-white sm:text-6xl drop-shadow-lg">
               Learn smarter with{" "}
-              <span className="bg-gradient-to-r from-violet-600 to-blue-600 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-violet-300 to-blue-300 bg-clip-text text-transparent">
                 AI-powered
               </span>{" "}
               curriculum
             </h1>
-            <p className="mt-6 text-lg text-muted-foreground sm:text-xl">
+            <p className="mt-6 text-lg text-white/80 sm:text-xl drop-shadow">
               The complete learning platform for Indian K-12 students.
               CBSE, ICSE, Kerala SCERT and all major state boards — Classes 1 to 12.
             </p>
             <div className="mt-10 flex items-center justify-center gap-4">
-              <Button size="lg" onClick={() => setSignUpOpen(true)}>
+              <Button size="lg" onClick={() => setSignUpOpen(true)} className="shadow-lg">
                 Start Learning Free
                 <ChevronRight className="ml-1 size-4" />
               </Button>
               <Link href="/login">
-                <Button size="lg" variant="outline">
+                <Button size="lg" variant="outline" className="border-white/30 text-white hover:bg-white/10 hover:text-white shadow-lg">
                   Try Demo
                 </Button>
               </Link>
@@ -143,6 +161,9 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+
+      {/* Board Updates */}
+      <BoardUpdatesFeed />
 
       {/* Features */}
       <section className="mx-auto max-w-7xl px-4 py-20">
@@ -240,10 +261,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl px-4 py-10">
           <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-violet-600">
-                <span className="text-xs font-bold text-white">P</span>
-              </div>
-              <span className="text-sm font-semibold">Padvik</span>
+              <PadvikLogo size="sm" />
               <span className="text-xs text-muted-foreground">by Ensate Technologies, Adoor, Kerala</span>
             </div>
             <p className="text-xs text-muted-foreground">

@@ -21,6 +21,8 @@ import {
   HelpCircle,
   GraduationCap,
   BookMarked,
+  Bell,
+  Play,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useBoardSelection } from "@/hooks/use-board-selection";
 import { useData } from "@/hooks/use-data";
 import { getSubjects } from "@/lib/data";
+import { DashboardNotifications } from "@/components/notifications/DashboardNotifications";
 
 interface DashboardHomeProps {
   userName: string;
@@ -39,6 +42,7 @@ interface DashboardHomeProps {
 const studentActions = [
   { href: "/dashboard/syllabus", label: "Curriculum", icon: BookOpen, color: "text-violet-600", desc: "Browse textbooks & study material" },
   { href: "/dashboard/learn", label: "My Learning", icon: GraduationCap, color: "text-emerald-600", desc: "Continue where you left off" },
+  { href: "__playground__", label: "Playground", icon: Play, color: "text-pink-600", desc: "Jump to your last topic" },
   { href: "/dashboard/learn/journal", label: "Study Journal", icon: BookMarked, color: "text-amber-600", desc: "Notes, chats, videos & exams" },
   { href: "/dashboard/chat", label: "Ask AI", icon: Sparkles, color: "text-blue-600", desc: "Ask anything about your subjects" },
 ];
@@ -55,6 +59,7 @@ const adminActions = [
   { href: "/scrape-jobs", label: "Scrape Pipeline", icon: Upload, color: "text-violet-600" },
   { href: "/admin/content-review", label: "Content Review", icon: CheckSquare, color: "text-orange-600" },
   { href: "/admin/ai-providers", label: "AI Providers", icon: Cpu, color: "text-blue-600" },
+  { href: "/admin/notification-scraper", label: "Notifications", icon: Bell, color: "text-pink-600" },
   { href: "/curriculum", label: "Curriculum Explorer", icon: Layers, color: "text-emerald-600" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, color: "text-muted-foreground" },
 ];
@@ -103,6 +108,26 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
     [boardId, grade],
   );
 
+  // Fetch continue learning data
+  const [continueData, setContinueData] = useState<Array<{
+    subject_name: string; latest_topic_id: number; latest_topic_title: string;
+    latest_chapter_title: string; avg_completion: number;
+  }>>([]);
+  useEffect(() => {
+    if (!boardId || !grade) return;
+    fetch(`/api/learn/dashboard?boardId=${boardId}&grade=${grade}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (json?.success) {
+          const items = (json.data.subjectProgress ?? [])
+            .filter((s: { latest_topic_id: number | null }) => s.latest_topic_id)
+            .slice(0, 3);
+          setContinueData(items);
+        }
+      })
+      .catch(() => {});
+  }, [boardId, grade]);
+
   return (
     <div className="space-y-6 pt-2">
       {/* Welcome banner */}
@@ -136,28 +161,75 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
         </div>
       </div>
 
+      {/* Continue Learning — shown at top for students */}
+      {continueData.length > 0 && (userRole === "student" || userRole === "teacher") && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <div className="h-2.5 w-2.5 rounded-full bg-amber-500 animate-pulse" />
+              Continue Learning
+            </h2>
+            <Link href="/dashboard/learn" className="text-xs text-violet-600 hover:underline">
+              View all
+            </Link>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {continueData.map((item) => (
+              <Link key={item.latest_topic_id} href={`/dashboard/learn/${item.latest_topic_id}`}>
+                <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full">
+                  <CardContent className="p-3">
+                    <Badge variant="secondary" className="text-[10px] mb-1.5">{item.subject_name}</Badge>
+                    <p className="text-xs font-medium truncate">{item.latest_topic_title}</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{item.latest_chapter_title}</p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-violet-500 transition-all"
+                          style={{ width: `${Math.min(item.avg_completion ?? 0, 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">{Math.round(item.avg_completion ?? 0)}%</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Quick actions — role-specific */}
-      <div className={`grid gap-3 ${userRole === "admin" ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6" : "grid-cols-2 sm:grid-cols-4"}`}>
-        {quickActions.map((action) => (
-          <Link key={action.href} href={action.href}>
-            <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full group">
-              <CardContent className="flex flex-col items-center gap-2.5 p-5 text-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/80 group-hover:bg-primary/10 transition-colors">
-                  <action.icon className={`h-6 w-6 ${action.color}`} />
-                </div>
-                <div>
-                  <span className="text-sm font-semibold block">{action.label}</span>
-                  {"desc" in action && (
-                    <span className="text-[10px] text-muted-foreground mt-0.5 block leading-tight">
-                      {(action as { desc: string }).desc}
-                    </span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
+      <div className={`grid gap-3 ${userRole === "admin" ? "grid-cols-2 sm:grid-cols-3 lg:grid-cols-6" : "grid-cols-2 sm:grid-cols-5"}`}>
+        {quickActions.map((action) => {
+          // Resolve Playground to last visited topic
+          const href = action.href === "__playground__"
+            ? (() => { try { const t = typeof window !== "undefined" ? localStorage.getItem("padvik-last-topic") : null; return t ? `/dashboard/learn/${t}` : "/dashboard/learn"; } catch { return "/dashboard/learn"; } })()
+            : action.href;
+
+          return (
+            <Link key={action.label} href={href}>
+              <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full group">
+                <CardContent className="flex flex-col items-center gap-2.5 p-5 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted/80 group-hover:bg-primary/10 transition-colors">
+                    <action.icon className={`h-6 w-6 ${action.color}`} />
+                  </div>
+                  <div>
+                    <span className="text-sm font-semibold block">{action.label}</span>
+                    {"desc" in action && (
+                      <span className="text-[10px] text-muted-foreground mt-0.5 block leading-tight">
+                        {(action as { desc: string }).desc}
+                      </span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          );
+        })}
       </div>
+
+      {/* Board Notifications */}
+      <DashboardNotifications />
 
       {/* Subjects overview — for students and teachers */}
       {(userRole === "student" || userRole === "teacher") && (
