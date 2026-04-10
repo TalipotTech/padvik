@@ -18,8 +18,9 @@ import { toast } from "sonner";
 import Link from "next/link";
 
 interface Member {
-  id: number; studentId: number; studentName: string; studentEmail: string | null;
+  id: number; memberId?: number; studentId: number; studentName: string; studentEmail: string | null;
   studentAvatar: string | null; role: string; joinedAt: string;
+  progress?: { totalViews: number; watchMinutes: number; completedContent: number; doubtsAsked: number };
 }
 
 interface Invite {
@@ -61,7 +62,7 @@ export default function ClassroomDetailPage() {
   async function fetchAll() {
     const [cr, mr, ir] = await Promise.all([
       fetch(`/api/classrooms/${params.id}`).then(r => r.json()),
-      fetch(`/api/classrooms/${params.id}/members`).then(r => r.json()),
+      fetch(`/api/classrooms/${params.id}/students`).then(r => r.json()).catch(() => fetch(`/api/classrooms/${params.id}/members`).then(r => r.json())),
       fetch(`/api/classrooms/${params.id}/invite`).then(r => r.json()),
     ]);
     if (cr.success) setClassroom(cr.data);
@@ -110,15 +111,23 @@ export default function ClassroomDetailPage() {
             </CardContent></Card>
           ) : (
             members.map(m => (
-              <Card key={m.id}>
+              <Card key={m.id || m.memberId}>
                 <CardContent className="flex items-center gap-3 py-3">
                   <Avatar className="h-9 w-9"><AvatarImage src={m.studentAvatar || undefined} /><AvatarFallback>{m.studentName?.[0] || "S"}</AvatarFallback></Avatar>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium">{m.studentName}</p>
                     <p className="text-xs text-muted-foreground">{m.studentEmail} · Joined {new Date(m.joinedAt).toLocaleDateString()}</p>
+                    {m.progress && (
+                      <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
+                        <span>{m.progress.totalViews} views</span>
+                        <span>{m.progress.watchMinutes} min watched</span>
+                        <span>{m.progress.completedContent} completed</span>
+                        <span>{m.progress.doubtsAsked} doubts</span>
+                      </div>
+                    )}
                   </div>
                   <Badge variant="outline" className="text-xs capitalize">{m.role}</Badge>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeMember(m.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeMember(m.id || m.memberId!)}><Trash2 className="h-3.5 w-3.5" /></Button>
                 </CardContent>
               </Card>
             ))
