@@ -73,7 +73,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, roles: ["teacher", "admin"] },
   { href: "/dashboard/exams", label: "Exams", icon: FileText, roles: ["teacher", "admin"] },
   { href: "/dashboard/chat", label: "AI Chat", icon: MessageSquare, roles: ["teacher", "admin"] },
-  { href: "/dashboard/classroom", label: "Classrooms", icon: Users, roles: ["teacher"] },
+  { href: "/dashboard/classroom", label: "Classrooms", icon: Users, roles: ["student", "teacher"] },
   { href: "/dashboard/doubts", label: "Doubts", icon: HelpCircle, roles: ["student"] },
   { href: "/dashboard/analytics", label: "Analytics", icon: BarChart3, roles: ["teacher", "parent", "admin"] },
 

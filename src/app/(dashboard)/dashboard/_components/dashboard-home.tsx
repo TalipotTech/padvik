@@ -96,12 +96,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
   const { boardId, boardName, grade } = useBoardSelection();
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Auto-open picker if no board selected (students and teachers need board context)
-  useEffect(() => {
-    if (!boardId && (userRole === "student" || userRole === "teacher" || userRole === "creator")) {
-      setPickerOpen(true);
-    }
-  }, [boardId, userRole]);
+  // Board selection is now handled via the CTA banner below — no forced dialog popup
 
   const firstName = userName.split(" ")[0].split("@")[0];
   const quickActions = getActionsForRole(userRole);
