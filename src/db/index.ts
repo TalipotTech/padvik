@@ -3,31 +3,47 @@ import postgres from "postgres";
 import * as schema from "./schema";
 
 /**
- * Lazy-initialized Drizzle client.
- * This ensures DATABASE_URL is read after dotenv has loaded
- * (important for CLI scripts and workers that run outside Next.js).
+ * Drizzle client with HMR-safe singleton.
+ * During Next.js dev, HMR re-imports modules but globalThis persists,
+ * preventing stale connection errors after code changes.
  */
-let _db: PostgresJsDatabase<typeof schema> | null = null;
+
+const globalForDb = globalThis as unknown as {
+  _pgClient: ReturnType<typeof postgres> | undefined;
+  _drizzleDb: PostgresJsDatabase<typeof schema> | undefined;
+};
+
+function createDb(): PostgresJsDatabase<typeof schema> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is not set");
+  }
+
+  if (!globalForDb._pgClient) {
+    globalForDb._pgClient = postgres(connectionString, {
+      max: 10, // connection pool size
+      idle_timeout: 20,
+      connect_timeout: 10,
+    });
+  }
+
+  if (!globalForDb._drizzleDb) {
+    globalForDb._drizzleDb = drizzle(globalForDb._pgClient, { schema });
+  }
+
+  return globalForDb._drizzleDb;
+}
 
 export function getDb(): PostgresJsDatabase<typeof schema> {
-  if (!_db) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error("DATABASE_URL environment variable is not set");
-    }
-    const client = postgres(connectionString);
-    _db = drizzle(client, { schema });
-  }
-  return _db;
+  return createDb();
 }
 
 /**
- * Direct export for backward compatibility.
- * In Next.js this works fine because env vars are loaded before module init.
- * In CLI/worker scripts, getDb() is preferred.
+ * Direct export — works in both Next.js and CLI/worker contexts.
+ * Uses Proxy to lazily initialize on first property access.
  */
 export const db = new Proxy({} as PostgresJsDatabase<typeof schema>, {
   get(_target, prop) {
-    return (getDb() as unknown as Record<string | symbol, unknown>)[prop];
+    return (createDb() as unknown as Record<string | symbol, unknown>)[prop];
   },
 });
