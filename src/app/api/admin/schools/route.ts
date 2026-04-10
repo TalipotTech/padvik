@@ -3,7 +3,6 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { schools } from "@/db/schema/schools";
 import { sql } from "drizzle-orm";
-import { addSchoolImportJob, getSchoolImportQueue } from "@/lib/queue/index";
 
 /**
  * POST /api/admin/schools/import — Queue a school import job via BullMQ
@@ -20,15 +19,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const { addSchoolImportJob } = await import("@/lib/queue/index");
     const jobId = await addSchoolImportJob({ source: body.source, stateFilter: body.stateFilter });
     return NextResponse.json({
       success: true,
       data: { jobId, source: body.source, message: "Import job queued. Ensure workers are running: pnpm workers" },
     });
   } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    console.error("[schools-import] Queue error:", msg);
     return NextResponse.json({
       success: false,
-      error: { code: "QUEUE_ERROR", message: `Failed to queue job. Is Redis running? ${err instanceof Error ? err.message : ""}` },
+      error: { code: "QUEUE_ERROR", message: `Failed to queue job. Is Redis running? Error: ${msg}` },
     }, { status: 500 });
   }
 }
@@ -50,6 +52,7 @@ export async function GET() {
   const jobs: Array<{ id: string; source: string; state: string; progress: unknown; result: unknown; failedReason?: string; startedAt?: number; finishedAt?: number }> = [];
 
   try {
+    const { getSchoolImportQueue } = await import("@/lib/queue/index");
     const queue = getSchoolImportQueue();
     const recentJobs = await queue.getJobs(["active", "completed", "failed", "waiting"], 0, 10);
 

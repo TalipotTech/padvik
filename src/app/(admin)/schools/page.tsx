@@ -105,19 +105,24 @@ export default function AdminSchoolsPage() {
 
   async function triggerImport(source: string) {
     setTriggeringSource(source);
-    const res = await fetch("/api/admin/schools/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ source }),
-    });
-    const data = await res.json();
-    setTriggeringSource(null);
-    if (data.success) {
-      toast.success(`Import queued: ${source} (Job ID: ${data.data.jobId})`);
-      fetchImportStatus();
-    } else {
-      toast.error(data.error?.message || "Failed to queue import");
+    try {
+      const res = await fetch("/api/admin/schools/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source }),
+      });
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : { success: false, error: { message: `Server returned ${res.status}` } };
+      if (data.success) {
+        toast.success(`Import queued: ${source} (Job ID: ${data.data.jobId})`);
+        fetchImportStatus();
+      } else {
+        toast.error(data.error?.message || "Failed to queue import");
+      }
+    } catch (err) {
+      toast.error(`Failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
+    setTriggeringSource(null);
   }
 
   function getSourceJob(sourceId: string): JobInfo | undefined {

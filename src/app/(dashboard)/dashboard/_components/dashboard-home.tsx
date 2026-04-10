@@ -61,6 +61,7 @@ const adminActions = [
   { href: "/admin/ai-providers", label: "AI Providers", icon: Cpu, color: "text-blue-600" },
   { href: "/admin/notification-scraper", label: "Notifications", icon: Bell, color: "text-pink-600" },
   { href: "/curriculum", label: "Curriculum Explorer", icon: Layers, color: "text-emerald-600" },
+  { href: "/schools", label: "Schools Directory", icon: GraduationCap, color: "text-teal-600" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, color: "text-muted-foreground" },
 ];
 
@@ -391,6 +392,41 @@ interface PipelineStats {
   aiUsageToday: Array<{ total_cost: number }>;
 }
 
+function SchoolsCard() {
+  const [schoolCount, setSchoolCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/schools/stats")
+      .then(r => r.json())
+      .then(d => { if (d.success) setSchoolCount(d.data.totalSchools); })
+      .catch(() => {});
+  }, []);
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium text-sm">Schools Directory</h3>
+          {schoolCount !== null && (
+            <Badge variant="secondary" className="text-xs">{schoolCount.toLocaleString()} schools</Badge>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Browse, search, and import schools from CBSE, ICSE, Kerala SCERT, and UDISE databases.
+        </p>
+        <div className="flex gap-2 mt-3">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/schools">Browse</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/schools">Import</Link>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function AdminSection() {
   const [stats, setStats] = useState<PipelineStats | null>(null);
 
@@ -415,7 +451,7 @@ function AdminSection() {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardContent className="p-4">
             <h3 className="font-medium text-sm">Content Pipeline</h3>
@@ -443,6 +479,7 @@ function AdminSection() {
             </Button>
           </CardContent>
         </Card>
+        <SchoolsCard />
       </div>
     </div>
   );
