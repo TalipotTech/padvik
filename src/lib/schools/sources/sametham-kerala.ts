@@ -1,10 +1,8 @@
 /**
  * Kerala Schools importer — from sametham.kite.kerala.gov.in
- * ~15,436 schools across 14 districts.
- *
- * Note: Sametham may use JavaScript-heavy rendering or change structure.
- * This importer attempts to fetch data via API endpoints. If it fails,
- * falls back to instructions for manual data download.
+ * The actual URL pattern: /search/districtWiseSchools/{1-14}
+ * Each district page has a table with school code, name, sub-district, district.
+ * Total: ~15,000 schools across 14 districts.
  */
 
 import * as cheerio from "cheerio";
@@ -12,141 +10,129 @@ import { importSchools } from "../importer";
 import type { RawSchoolRecord, ImportResult } from "../types";
 
 const BASE_URL = "https://sametham.kite.kerala.gov.in";
-const RATE_LIMIT_MS = 3000;
+const RATE_LIMIT_MS = 2000;
 
-const KERALA_DISTRICTS = [
-  "Thiruvananthapuram", "Kollam", "Pathanamthitta", "Alappuzha",
-  "Kottayam", "Idukki", "Ernakulam", "Thrissur",
-  "Palakkad", "Malappuram", "Kozhikode", "Wayanad",
-  "Kannur", "Kasaragod",
+// District IDs 1-14 matching the Sametham URL pattern
+const DISTRICTS: { id: number; name: string }[] = [
+  { id: 1, name: "Thiruvananthapuram" },
+  { id: 2, name: "Kollam" },
+  { id: 3, name: "Pathanamthitta" },
+  { id: 4, name: "Alappuzha" },
+  { id: 5, name: "Kottayam" },
+  { id: 6, name: "Idukki" },
+  { id: 7, name: "Ernakulam" },
+  { id: 8, name: "Thrissur" },
+  { id: 9, name: "Palakkad" },
+  { id: 10, name: "Malappuram" },
+  { id: 11, name: "Kozhikode" },
+  { id: 12, name: "Wayanad" },
+  { id: 13, name: "Kannur" },
+  { id: 14, name: "Kasaragod" },
 ];
 
-/** Map Kerala school type to class range */
-function mapSchoolType(type: string): { from: number; to: number } {
-  const t = type.toUpperCase();
-  if (t.includes("LP") || t.includes("LOWER PRIMARY")) return { from: 1, to: 4 };
-  if (t.includes("UP") || t.includes("UPPER PRIMARY")) return { from: 5, to: 7 };
-  if (t.includes("HSS") || t.includes("HIGHER SECONDARY")) return { from: 8, to: 12 };
-  if (t.includes("HS") || t.includes("HIGH SCHOOL")) return { from: 8, to: 10 };
-  if (t.includes("VHSE")) return { from: 11, to: 12 };
-  return { from: 1, to: 10 };
+/** Parse school code to determine type and class range */
+function parseSchoolCode(code: string): { type: string; classesFrom: number; classesTo: number } {
+  const prefix = code.split(":")[0]?.toUpperCase() || "";
+  if (prefix === "LP" || prefix.includes("LP")) return { type: "LP", classesFrom: 1, classesTo: 4 };
+  if (prefix === "UP" || prefix.includes("UP")) return { type: "UP", classesFrom: 5, classesTo: 7 };
+  if (prefix === "HSS" || prefix.includes("HSS")) return { type: "HSS", classesFrom: 1, classesTo: 12 };
+  if (prefix === "HS" || prefix.includes("HS")) return { type: "HS", classesFrom: 1, classesTo: 10 };
+  if (prefix === "VHSE" || prefix.includes("VHSE")) return { type: "VHSE", classesFrom: 11, classesTo: 12 };
+  if (prefix === "TTI") return { type: "TTI", classesFrom: 1, classesTo: 12 };
+  return { type: prefix || "HS", classesFrom: 1, classesTo: 10 };
 }
 
 async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
-export async function importFromSametham(stateFilter?: string): Promise<ImportResult> {
-  console.log("[sametham] Starting Kerala schools import from Sametham...");
+export async function importFromSametham(
+  stateFilter?: string,
+  onProgress?: (msg: string) => void
+): Promise<ImportResult> {
+  const log = (msg: string) => { console.log(`[sametham] ${msg}`); onProgress?.(msg); };
+  log("Starting Kerala schools import from Sametham...");
 
-  const records: RawSchoolRecord[] = [];
+  const allRecords: RawSchoolRecord[] = [];
   const errors: string[] = [];
 
-  for (const district of KERALA_DISTRICTS) {
-    if (stateFilter && !district.toLowerCase().includes(stateFilter.toLowerCase())) continue;
+  for (const district of DISTRICTS) {
+    if (stateFilter && !district.name.toLowerCase().includes(stateFilter.toLowerCase())) continue;
 
-    console.log(`[sametham] Fetching ${district}...`);
+    log(`Fetching ${district.name} (${district.id}/14)...`);
 
     try {
-      // Attempt to find and fetch the district school listing
-      // Sametham may use different URL patterns — try common ones
-      const urls = [
-        `${BASE_URL}/api/schools?district=${encodeURIComponent(district)}`,
-        `${BASE_URL}/schools/${encodeURIComponent(district.toLowerCase())}`,
-        `${BASE_URL}/SchoolList?district=${encodeURIComponent(district)}`,
-      ];
+      const url = `${BASE_URL}/search/districtWiseSchools/${district.id}`;
+      const res = await fetch(url, {
+        headers: { "User-Agent": "Padvik-Bot/1.0 (educational platform, contact@ensate.in)" },
+      });
 
-      let html = "";
-      let fetchedUrl = "";
-      for (const url of urls) {
-        try {
-          const res = await fetch(url, {
-            headers: { "User-Agent": "Padvik-Bot/1.0 (educational platform, contact@ensate.in)" },
-          });
-          if (res.ok) {
-            const contentType = res.headers.get("content-type") || "";
-            const text = await res.text();
-
-            // If JSON API response
-            if (contentType.includes("json")) {
-              try {
-                const data = JSON.parse(text);
-                const schoolList = Array.isArray(data) ? data : data.schools || data.data || [];
-                for (const s of schoolList) {
-                  records.push({
-                    name: s.name || s.school_name || s.schoolName || "",
-                    stateBoardCode: s.code || s.school_code || undefined,
-                    boardCode: "KL_SCERT",
-                    district,
-                    state: "Kerala",
-                    managementType: s.management || s.managementType || undefined,
-                    ...mapSchoolType(s.type || s.schoolType || "HS"),
-                    studentCount: s.students || s.studentCount || undefined,
-                    teacherCount: s.teachers || s.teacherCount || undefined,
-                    source: "sametham",
-                    sourceUrl: url,
-                    rawData: s,
-                  });
-                }
-                fetchedUrl = url;
-                break;
-              } catch { /* not valid JSON, try HTML parse */ }
-            }
-
-            html = text;
-            fetchedUrl = url;
-            break;
-          }
-        } catch { /* try next URL */ }
-        await sleep(RATE_LIMIT_MS);
+      if (!res.ok) {
+        errors.push(`${district.name}: HTTP ${res.status}`);
+        log(`${district.name}: HTTP ${res.status} — skipped`);
+        continue;
       }
 
-      // Parse HTML if we got it and didn't get JSON
-      if (html && records.filter(r => r.district === district).length === 0) {
-        const $ = cheerio.load(html);
-        // Try common table patterns
-        $("table tr, .school-item, .school-card").each((_, el) => {
-          const cells = $(el).find("td");
-          const name = cells.eq(1)?.text()?.trim() || $(el).find(".school-name, .name, h3, h4").first().text().trim();
-          if (name && name.length > 3) {
-            const type = cells.eq(2)?.text()?.trim() || $(el).find(".type").text().trim() || "HS";
-            const mgmt = cells.eq(3)?.text()?.trim() || $(el).find(".management").text().trim();
-            const code = cells.eq(0)?.text()?.trim() || $(el).find(".code").text().trim();
+      const html = await res.text();
+      const $ = cheerio.load(html);
+      let districtCount = 0;
 
-            records.push({
-              name,
-              stateBoardCode: code || undefined,
-              boardCode: "KL_SCERT",
-              district,
-              state: "Kerala",
-              managementType: mgmt || undefined,
-              ...mapSchoolType(type),
-              source: "sametham",
-              sourceUrl: fetchedUrl,
-              rawData: { name, type, management: mgmt, code, district },
-            });
-          }
+      $("table tbody tr").each((_, el) => {
+        const cells = $(el).find("td");
+        if (cells.length < 4) return;
+
+        const schoolCode = cells.eq(1)?.text()?.trim() || "";
+        const name = cells.eq(2)?.text()?.trim() || "";
+        const subDistrict = cells.eq(3)?.text()?.trim() || "";
+        const districtName = cells.eq(4)?.text()?.trim() || district.name;
+        const eduDistrict = cells.eq(5)?.text()?.trim() || "";
+
+        if (!name || name.length < 3) return;
+
+        const { type, classesFrom, classesTo } = parseSchoolCode(schoolCode);
+
+        // Determine management type from name patterns
+        let managementType: string | undefined;
+        const nameLower = name.toLowerCase();
+        if (nameLower.includes("govt.") || nameLower.includes("government")) managementType = "government";
+        else if (nameLower.includes("aided")) managementType = "aided";
+        else managementType = "private";
+
+        allRecords.push({
+          name,
+          stateBoardCode: schoolCode || undefined,
+          boardCode: "KL_SCERT",
+          district: district.name,
+          city: subDistrict || undefined,
+          state: "Kerala",
+          managementType,
+          schoolCategory: type === "LP" ? "primary" : type === "UP" ? "upper_primary" : type === "HS" ? "secondary" : "sr_secondary",
+          classesFrom,
+          classesTo,
+          medium: ["malayalam"],
+          source: "sametham",
+          sourceUrl: url,
+          rawData: { schoolCode, name, subDistrict, district: districtName, eduDistrict, type },
         });
-      }
+        districtCount++;
+      });
 
-      console.log(`[sametham] ${district}: ${records.filter(r => r.district === district).length} schools`);
+      log(`${district.name}: ${districtCount} schools found`);
     } catch (err) {
-      errors.push(`${district}: ${err instanceof Error ? err.message : "failed"}`);
-      console.warn(`[sametham] ${district} failed: ${err instanceof Error ? err.message : "unknown"}`);
+      const msg = `${district.name}: ${err instanceof Error ? err.message : "failed"}`;
+      errors.push(msg);
+      log(msg);
     }
 
     await sleep(RATE_LIMIT_MS);
   }
 
-  if (records.length === 0) {
-    console.warn("[sametham] No schools found. The website may have changed structure.");
-    console.warn("[sametham] Manual alternative: Visit sametham.kite.kerala.gov.in, download school data,");
-    console.warn("[sametham] save as CSV at data/kerala-schools.csv, then use the UDISE importer.");
+  if (allRecords.length === 0) {
+    log("No schools found. Sametham site may have changed.");
     return {
       source: "sametham", totalRecords: 0, inserted: 0, updated: 0, skipped: 0,
-      errors: ["No data fetched. Site may require JavaScript rendering or has changed structure.", ...errors],
-      durationMs: 0,
+      errors: ["No data fetched from Sametham.", ...errors], durationMs: 0,
     };
   }
 
-  console.log(`[sametham] Total: ${records.length} schools from ${KERALA_DISTRICTS.length} districts`);
-  return importSchools(records);
+  log(`Total: ${allRecords.length} Kerala schools. Importing into database...`);
+  return importSchools(allRecords, onProgress);
 }

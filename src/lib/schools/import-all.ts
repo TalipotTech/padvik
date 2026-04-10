@@ -39,7 +39,7 @@ export async function importAllSchools(options: ImportOptions = {}): Promise<Imp
           result = await importCbseFromGithub(options.onProgress);
           break;
         case "sametham":
-          result = await importFromSametham(options.stateFilter);
+          result = await importFromSametham(options.stateFilter, options.onProgress);
           break;
         case "cbse_saras":
           result = await importFromCbseSaras(options.stateFilter);
