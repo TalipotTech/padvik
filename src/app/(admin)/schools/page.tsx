@@ -246,11 +246,11 @@ export default function AdminSchoolsPage() {
                 })}
 
                 {/* UDISE CSV Upload */}
-                <div className="rounded-lg border border-dashed p-3 space-y-2">
+                <div className="rounded-lg border-2 border-dashed border-violet-300 dark:border-violet-700 bg-violet-50/50 dark:bg-violet-950/10 p-3 space-y-2">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium">UDISE+ (All India)</p>
-                      <p className="text-xs text-muted-foreground">Upload CSV from udiseplus.gov.in — up to 1.47M schools</p>
+                      <p className="text-sm font-medium">📋 UDISE+ (All India — 1.47M schools)</p>
+                      <p className="text-xs text-muted-foreground">Covers ALL states, ALL boards, ALL school types</p>
                     </div>
                     <div className="flex items-center gap-2">
                       {(dbCounts["udise"] || 0) > 0 && <Badge variant="outline" className="text-xs">{(dbCounts["udise"] || 0).toLocaleString()} in DB</Badge>}
@@ -272,12 +272,23 @@ export default function AdminSchoolsPage() {
                     </p>
                   )}
 
-                  <input ref={udiseFileRef} type="file" className="hidden" accept=".csv" onChange={handleUdiseUpload} />
+                  {/* Download instructions */}
+                  <div className="text-xs space-y-1 bg-background rounded p-2 border">
+                    <p className="font-medium">Step 1: Download CSV from one of these sources:</p>
+                    <ul className="list-disc ml-4 space-y-0.5 text-muted-foreground">
+                      <li><a href="https://www.kaggle.com/datasets/hritikakolkar/schools" target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:underline">Kaggle: All 16 lakh schools</a> (login required)</li>
+                      <li><a href="https://www.data.gov.in/catalog/list-schools" target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:underline">data.gov.in: List of Schools</a></li>
+                      <li><a href="https://dashboard.udiseplus.gov.in" target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:underline">UDISE+ Dashboard</a> → Reports → Download CSV</li>
+                    </ul>
+                    <p className="font-medium mt-1">Step 2: Upload the CSV below:</p>
+                  </div>
+
+                  <input ref={udiseFileRef} type="file" className="hidden" accept=".csv,.txt" onChange={handleUdiseUpload} />
                   <Button
-                    variant="outline"
+                    variant="default"
                     size="sm"
                     className="w-full gap-1.5"
-                    disabled={uploadingUdise || imports["udise"]?.running}
+                    disabled={uploadingUdise || !!imports["udise"]?.running}
                     onClick={() => udiseFileRef.current?.click()}
                   >
                     {uploadingUdise ? (
