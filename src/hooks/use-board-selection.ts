@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-const STORAGE_KEY = "padvik-board-selection";
-const USER_KEY = "padvik-board-user"; // tracks which userId the selection belongs to
+const CACHE_KEY = "padvik-board-cache";
+const USER_KEY = "padvik-board-user";
 
 export interface BoardSelection {
   boardId: number | null;
@@ -19,114 +19,111 @@ const defaultSelection: BoardSelection = {
   stream: null,
 };
 
-// Cached snapshot — useSyncExternalStore requires referential stability
-let cachedSelection: BoardSelection = defaultSelection;
-let cachedRaw: string | null = null;
+// Global in-memory state (shared across all hook instances in the same page)
+let _currentSelection: BoardSelection = defaultSelection;
+let _loaded = false;
+const _listeners = new Set<() => void>();
 
-function getSnapshot(): BoardSelection {
-  if (typeof window === "undefined") return defaultSelection;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw !== cachedRaw) {
-      cachedRaw = raw;
-      cachedSelection = raw ? (JSON.parse(raw) as BoardSelection) : defaultSelection;
-    }
-    return cachedSelection;
-  } catch {
-    return defaultSelection;
-  }
-}
-
-function getServerSnapshot(): BoardSelection {
-  return defaultSelection;
-}
-
-// Subscribers for useSyncExternalStore
-const listeners = new Set<() => void>();
-function subscribe(cb: () => void) {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-}
-
-function emitChange() {
-  // Reset cache so getSnapshot re-reads from localStorage
-  cachedRaw = null;
-  for (const listener of listeners) listener();
+function emit() {
+  for (const fn of _listeners) fn();
 }
 
 /**
- * Ensure localStorage selection belongs to the current user.
- * Clears stale data from a previous user's session.
+ * Clear the board cache when a different user signs in.
+ * Called from UserSessionSync component on every dashboard render.
  */
 export function ensureUserSelection(userId: string | number) {
   if (typeof window === "undefined") return;
   const storedUser = localStorage.getItem(USER_KEY);
-  const currentUser = String(userId);
+  const current = String(userId);
 
-  if (storedUser && storedUser !== currentUser) {
-    // Different user — clear the old selection
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.setItem(USER_KEY, currentUser);
-    emitChange();
-  } else if (!storedUser) {
-    localStorage.setItem(USER_KEY, currentUser);
+  if (storedUser !== current) {
+    // Different user — wipe cache and force re-fetch from DB
+    localStorage.removeItem(CACHE_KEY);
+    localStorage.setItem(USER_KEY, current);
+    _currentSelection = defaultSelection;
+    _loaded = false;
+    emit();
   }
 }
 
-// Hydrate from profile API if localStorage is empty (one-time per page load)
-let hydrated = false;
-function hydrateFromProfile() {
-  if (hydrated || typeof window === "undefined") return;
-  hydrated = true;
-
-  // Only hydrate if localStorage has no selection
-  const existing = localStorage.getItem(STORAGE_KEY);
-  if (existing) return;
-
-  fetch("/api/user/profile")
-    .then((r) => (r.ok ? r.json() : null))
-    .then((data) => {
-      if (!data?.success || !data.data?.boardId) return;
-      const { boardId, boardName, boardCode, grade } = data.data;
-      const sel: BoardSelection = {
-        boardId,
-        boardName: boardCode ?? boardName ?? null,
-        grade: grade ?? null,
-        stream: null,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sel));
-      emitChange();
-    })
-    .catch(() => { /* non-critical */ });
-}
-
-/** Reset hydration flag — call when user signs out so next login re-fetches */
+/** Reset on sign-out */
 export function resetBoardHydration() {
-  hydrated = false;
-  cachedRaw = null;
-  cachedSelection = defaultSelection;
+  _currentSelection = defaultSelection;
+  _loaded = false;
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(CACHE_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
+  emit();
 }
 
 export function useBoardSelection() {
-  const selection = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const [, setTick] = useState(0);
 
-  // Hydrate from DB on first render if localStorage is empty
-  if (typeof window !== "undefined") hydrateFromProfile();
+  // Subscribe to global changes
+  useEffect(() => {
+    const listener = () => setTick(t => t + 1);
+    _listeners.add(listener);
+    return () => { _listeners.delete(listener); };
+  }, []);
+
+  // Fetch from server on first mount (if not already loaded)
+  useEffect(() => {
+    if (_loaded) return;
+    _loaded = true;
+
+    // Check local cache first (same user, same session — fast path)
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached) as BoardSelection;
+        if (parsed.boardId) {
+          _currentSelection = parsed;
+          emit();
+          return; // Cache hit — skip API call
+        }
+      }
+    } catch { /* ignore */ }
+
+    // Fetch from DB via profile API — the source of truth
+    fetch("/api/user/profile")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.success) return;
+        const { boardId, boardCode, boardName, grade } = data.data;
+        if (boardId) {
+          _currentSelection = {
+            boardId,
+            boardName: boardCode ?? boardName ?? null,
+            grade: grade ?? null,
+            stream: null,
+          };
+          // Cache for this session
+          localStorage.setItem(CACHE_KEY, JSON.stringify(_currentSelection));
+        } else {
+          _currentSelection = defaultSelection;
+        }
+        emit();
+      })
+      .catch(() => { /* non-critical */ });
+  }, []);
 
   const setSelection = useCallback((sel: Partial<BoardSelection>) => {
-    const current = getSnapshot();
-    const next = { ...current, ...sel };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    emitChange();
+    _currentSelection = { ..._currentSelection, ...sel };
+    // Cache locally
+    localStorage.setItem(CACHE_KEY, JSON.stringify(_currentSelection));
+    emit();
   }, []);
 
   const clearSelection = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY);
-    emitChange();
+    _currentSelection = defaultSelection;
+    localStorage.removeItem(CACHE_KEY);
+    emit();
   }, []);
 
   return {
-    ...selection,
+    ..._currentSelection,
     setSelection,
     clearSelection,
   };

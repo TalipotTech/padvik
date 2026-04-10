@@ -291,7 +291,14 @@ function SidebarContent({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
-              <form action={signOutAction}>
+              <form action={signOutAction} onSubmit={() => {
+                // Clear board cache on sign-out so next user starts fresh
+                try {
+                  localStorage.removeItem("padvik-board-cache");
+                  localStorage.removeItem("padvik-board-user");
+                  localStorage.removeItem("padvik-board-selection"); // legacy key cleanup
+                } catch {}
+              }}>
                 <button type="submit" className="flex w-full items-center">
                   <LogOut className="mr-2 h-4 w-4" />
                   Sign out
