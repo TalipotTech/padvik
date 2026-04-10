@@ -91,7 +91,7 @@ export default function AdminSchoolsPage() {
 
   async function fetchImportStatus() {
     try {
-      const res = await fetch("/api/admin/schools/import");
+      const res = await fetch("/api/admin/schools");
       const text = await res.text();
       if (!text) return;
       const data = JSON.parse(text);
@@ -105,7 +105,7 @@ export default function AdminSchoolsPage() {
   async function triggerImport(source: string) {
     setTriggeringSource(source);
     try {
-      const res = await fetch("/api/admin/schools/import", {
+      const res = await fetch("/api/admin/schools", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source }),
