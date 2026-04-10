@@ -184,12 +184,9 @@ export default function AdminSchoolsPage() {
             <DialogTrigger asChild>
               <Button className="gap-2"><Download className="h-4 w-4" />Import Schools</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader><DialogTitle>Import Schools via Queue</DialogTitle></DialogHeader>
-              <p className="text-xs text-muted-foreground mb-3">
-                Jobs are queued via BullMQ and processed by workers. Make sure <code className="bg-muted px-1 rounded">pnpm workers</code> is running.
-              </p>
-              <div className="space-y-3">
+            <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+              <DialogHeader className="shrink-0"><DialogTitle>Import Schools</DialogTitle></DialogHeader>
+              <div className="overflow-y-auto flex-1 space-y-3 pr-1">
                 {SOURCES.map(s => {
                   const info = getSourceImport(s.id);
                   const count = dbCounts[s.id] || 0;
