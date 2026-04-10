@@ -8,6 +8,8 @@ import { checkCreator } from "@/lib/check-creator";
 
 const querySchema = z.object({
   status: z.string().optional(),
+  classroomId: z.coerce.number().optional(),
+  contentId: z.coerce.number().optional(),
   topicId: z.coerce.number().optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(50).default(20),
@@ -42,17 +44,16 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { status, topicId, page, limit } = parsed.data;
+  const { status, classroomId, contentId, topicId, page, limit } = parsed.data;
   const offset = (page - 1) * limit;
 
-  // Show doubts targeted at this creator, or open doubts without a specific creator target
+  // Show doubts targeted at this creator
   const conditions = [
-    or(
-      eq(doubts.creatorId, userId),
-      eq(doubts.creatorId, sql`NULL`)
-    ),
+    eq(doubts.creatorId, userId),
   ];
   if (status) conditions.push(eq(doubts.status, status));
+  if (classroomId) conditions.push(eq(doubts.classroomId, classroomId));
+  if (contentId) conditions.push(eq(doubts.contentId, contentId));
   if (topicId) conditions.push(eq(doubts.topicId, topicId));
 
   const whereClause = and(...conditions);

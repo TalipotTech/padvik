@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
   Loader2, Copy, Users, Trash2, ArrowLeft, Send, Plus, X,
   Mail, Phone, MessageCircle, CheckCircle, Clock, AlertCircle,
+  FileText, QrCode, BookOpen, Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -54,21 +55,44 @@ export default function ClassroomDetailPage() {
   const [classroom, setClassroom] = useState<Record<string, unknown> | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
+  const [contentItems, setContentItems] = useState<Array<{ id: number; title: string; contentType: string; viewCount: number; createdAt: string }>>([]);
+  const [myContent, setMyContent] = useState<Array<{ id: number; title: string; contentType: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const [assigningContent, setAssigningContent] = useState(false);
 
   useEffect(() => { fetchAll(); }, [params.id]);
 
   async function fetchAll() {
-    const [cr, mr, ir] = await Promise.all([
+    const [cr, mr, ir, ct, mc] = await Promise.all([
       fetch(`/api/classrooms/${params.id}`).then(r => r.json()),
       fetch(`/api/classrooms/${params.id}/students`).then(r => r.json()).catch(() => fetch(`/api/classrooms/${params.id}/members`).then(r => r.json())),
       fetch(`/api/classrooms/${params.id}/invite`).then(r => r.json()),
+      fetch(`/api/classrooms/${params.id}/content`).then(r => r.json()).catch(() => ({ success: false })),
+      fetch(`/api/creators/content?limit=50`).then(r => r.json()).catch(() => ({ success: false })),
     ]);
     if (cr.success) setClassroom(cr.data);
     if (mr.success) setMembers(mr.data);
     if (ir.success) setInvites(ir.data);
+    if (ct.success) setContentItems(ct.data || []);
+    if (mc.success) setMyContent(mc.data?.items || []);
     setLoading(false);
+  }
+
+  async function assignContent(contentId: number) {
+    setAssigningContent(true);
+    const res = await fetch(`/api/classrooms/${params.id}/content`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contentId }),
+    });
+    const data = await res.json();
+    setAssigningContent(false);
+    if (data.success) {
+      toast.success("Content assigned to classroom");
+      fetchAll();
+    } else toast.error(data.error?.message || "Failed to assign");
   }
 
   async function removeMember(memberId: number) {
@@ -91,8 +115,15 @@ export default function ClassroomDetailPage() {
           <h1 className="text-2xl font-bold">{classroom.name as string}</h1>
           <p className="text-sm text-muted-foreground">{members.length} students enrolled</p>
         </div>
-        <Button variant="outline" className="gap-1.5" onClick={() => { navigator.clipboard.writeText(joinCode); toast.success("Code copied!"); }}>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { navigator.clipboard.writeText(joinCode); toast.success("Code copied!"); }}>
           <Copy className="h-4 w-4" />{joinCode}
+        </Button>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={() => {
+          const link = `${window.location.origin}/dashboard/classroom`;
+          navigator.clipboard.writeText(`Join code: ${joinCode}\nLink: ${link}`);
+          toast.success("Invite link copied!");
+        }}>
+          <Link2 className="h-4 w-4" />Share
         </Button>
         <InviteDialog classroomId={Number(params.id)} open={inviteOpen} onOpenChange={setInviteOpen} onSent={() => fetchAll()} />
       </div>
@@ -100,6 +131,7 @@ export default function ClassroomDetailPage() {
       <Tabs defaultValue="members">
         <TabsList>
           <TabsTrigger value="members" className="gap-1.5"><Users className="h-3.5 w-3.5" />Members ({members.length})</TabsTrigger>
+          <TabsTrigger value="content" className="gap-1.5"><BookOpen className="h-3.5 w-3.5" />Content ({contentItems.length})</TabsTrigger>
           <TabsTrigger value="invites" className="gap-1.5"><Send className="h-3.5 w-3.5" />Invites ({invites.length})</TabsTrigger>
         </TabsList>
 
@@ -128,6 +160,54 @@ export default function ClassroomDetailPage() {
                   </div>
                   <Badge variant="outline" className="text-xs capitalize">{m.role}</Badge>
                   <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeMember(m.id || m.memberId!)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+
+        {/* Content Tab */}
+        <TabsContent value="content" className="mt-4 space-y-4">
+          {/* Assign content */}
+          {myContent.length > 0 && (
+            <Card>
+              <CardContent className="py-3">
+                <div className="flex items-center gap-2">
+                  <select
+                    className="flex-1 h-9 rounded-md border bg-background px-3 text-sm"
+                    defaultValue=""
+                    onChange={e => { if (e.target.value) assignContent(Number(e.target.value)); e.target.value = ""; }}
+                    disabled={assigningContent}
+                  >
+                    <option value="">Assign content to this classroom...</option>
+                    {myContent.map(c => (
+                      <option key={c.id} value={c.id}>{c.title} ({c.contentType})</option>
+                    ))}
+                  </select>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {contentItems.length === 0 ? (
+            <Card><CardContent className="py-8 text-center text-muted-foreground">
+              <FileText className="h-8 w-8 mx-auto mb-2" />
+              <p>No content assigned yet.</p>
+              <p className="text-xs mt-1">Assign content from the dropdown above or upload new content first.</p>
+            </CardContent></Card>
+          ) : (
+            contentItems.map(item => (
+              <Card key={item.id}>
+                <CardContent className="flex items-center gap-3 py-3">
+                  <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{item.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge variant="outline" className="text-[10px] capitalize py-0 h-5">{item.contentType}</Badge>
+                      <span className="text-[10px] text-muted-foreground">{item.viewCount || 0} views</span>
+                      <span className="text-[10px] text-muted-foreground">{new Date(item.createdAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             ))

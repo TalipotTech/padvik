@@ -16,6 +16,7 @@ export default function AskDoubtPage() {
     questionText: "",
     topicId: "",
     creatorId: "",
+    classroomId: "",
   });
 
   async function handleSubmit(e: React.FormEvent) {
@@ -29,6 +30,7 @@ export default function AskDoubtPage() {
         questionText: form.questionText,
         topicId: form.topicId ? Number(form.topicId) : undefined,
         creatorId: form.creatorId ? Number(form.creatorId) : undefined,
+        classroomId: form.classroomId ? Number(form.classroomId) : undefined,
       }),
     });
 

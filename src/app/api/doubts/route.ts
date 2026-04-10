@@ -2,17 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { users } from "@/db/schema/auth";
-import { doubts } from "@/db/schema/doubts";
+import { doubts, doubtResponses } from "@/db/schema/doubts";
 import { eq, and, desc, sql, ilike } from "drizzle-orm";
 import { z } from "zod/v4";
 
 // ---------------------------------------------------------------------------
-// POST /api/doubts — Student creates a doubt
+// POST /api/doubts — Student creates a doubt (with optional AI auto-response)
 // ---------------------------------------------------------------------------
 const createSchema = z.object({
   questionText: z.string().min(10).max(5000),
   creatorId: z.number().optional(),
   contentId: z.number().optional(),
+  classroomId: z.number().optional(),
   topicId: z.number().optional(),
   questionImages: z.array(z.string()).optional(),
 });
@@ -46,18 +47,49 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { questionText, creatorId, contentId, topicId, questionImages } = parsed.data;
+  const { questionText, creatorId, contentId, classroomId, topicId, questionImages } = parsed.data;
 
   const [doubt] = await db.insert(doubts).values({
     studentId: userId,
     creatorId: creatorId ?? null,
     contentId: contentId ?? null,
+    classroomId: classroomId ?? null,
     topicId: topicId ?? null,
     questionText,
     questionImages: questionImages ?? [],
   }).returning();
 
+  // AI auto-response: generate a draft answer using AI (non-blocking)
+  generateAiDraftResponse(doubt.id, questionText).catch(() => {});
+
   return NextResponse.json({ success: true, data: doubt }, { status: 201 });
+}
+
+/** Generate an AI draft response for the doubt (background, non-blocking) */
+async function generateAiDraftResponse(doubtId: number, questionText: string) {
+  try {
+    const { aiChat, AI_MODELS } = await import("@/lib/ai/provider");
+    const result = await aiChat(
+      `You are a helpful educational tutor. A student asked this doubt:\n\n"${questionText}"\n\nProvide a clear, concise answer suitable for an Indian K-12 student. Use simple language. If math is involved, use LaTeX notation. Keep the response under 300 words.`,
+      { model: AI_MODELS.BULK, temperature: 0.3, maxTokens: 500 }
+    );
+
+    if (result.content) {
+      await db.insert(doubtResponses).values({
+        doubtId,
+        responderId: 1, // system user
+        responseText: result.content,
+        responseType: "text",
+        isAi: true,
+      });
+
+      // Update doubt status to ai_answered
+      await db.update(doubts).set({ status: "ai_answered", updatedAt: new Date() }).where(eq(doubts.id, doubtId));
+    }
+  } catch (err) {
+    console.error(`[ai-doubt] Failed to generate AI response for doubt ${doubtId}:`, err instanceof Error ? err.message : err);
+    // Non-critical — doubt stays as "open" for creator to answer
+  }
 }
 
 // ---------------------------------------------------------------------------
