@@ -39,6 +39,12 @@ function deriveCategory(from?: number, to?: number): string | undefined {
   return "sr_secondary";
 }
 
+/** Normalize to title case: "KERALA" → "Kerala", "andhra pradesh" → "Andhra Pradesh" */
+function titleCase(str?: string): string | undefined {
+  if (!str) return undefined;
+  return str.trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
 /** Generate URL-safe slug */
 function slugify(name: string, district?: string, state?: string): string {
   const parts = [name, district, state].filter(Boolean).join("-");
@@ -112,9 +118,9 @@ export async function importSchools(
           boardId,
           boardCode: record.boardCode ?? null,
           address: record.address ?? null,
-          city: record.city ?? null,
-          district: record.district ?? null,
-          state: record.state ?? null,
+          city: titleCase(record.city) ?? null,
+          district: titleCase(record.district) ?? null,
+          state: titleCase(record.state) ?? null,
           pincode: record.pincode ?? null,
           latitude: record.latitude ? String(record.latitude) : null,
           longitude: record.longitude ? String(record.longitude) : null,
