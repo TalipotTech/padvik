@@ -2,10 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { PadvikLogo } from "@/components/ui/padvik-logo";
 import { Loader2, Users, BookOpen, CheckCircle, AlertCircle } from "lucide-react";
@@ -30,6 +28,7 @@ export default function JoinInvitePage() {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   useEffect(() => {
     fetch(`/api/classrooms/invite/${params.token}`)
@@ -52,8 +51,7 @@ export default function JoinInvitePage() {
       setJoined(true);
       toast.success(`Joined "${result.data.name}"!`);
     } else if (result.error?.code === "UNAUTHORIZED") {
-      // Not logged in — redirect to login then back here
-      router.push(`/login?callbackUrl=/join/${params.token}`);
+      setNeedsLogin(true);
     } else {
       toast.error(result.error?.message || "Failed to join");
     }
@@ -61,23 +59,24 @@ export default function JoinInvitePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-950/20 dark:to-indigo-950/20">
+        <Loader2 className="h-8 w-8 animate-spin text-violet-500" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <Card className="max-w-md w-full">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-950/20 dark:to-indigo-950/20 p-4">
+        <Card className="max-w-md w-full shadow-xl">
           <CardContent className="py-12 text-center space-y-4">
             <AlertCircle className="h-12 w-12 text-destructive mx-auto" />
             <h2 className="text-xl font-bold">Invite Not Available</h2>
             <p className="text-muted-foreground">{error}</p>
-            <Link href="/dashboard/classroom">
-              <Button variant="outline">Go to Classrooms</Button>
-            </Link>
+            <div className="flex gap-2 justify-center">
+              <Link href="/dashboard/classroom"><Button variant="outline">Go to Classrooms</Button></Link>
+              <Link href="/login"><Button>Sign In</Button></Link>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -88,16 +87,17 @@ export default function JoinInvitePage() {
   const { classroom, invite } = data;
   const curriculum = [classroom.boardName, classroom.standardGrade ? `Class ${classroom.standardGrade}` : null, classroom.subjectName].filter(Boolean).join(" · ");
 
+  // Success state
   if (joined) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <Card className="max-w-md w-full">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-950/20 dark:to-indigo-950/20 p-4">
+        <Card className="max-w-md w-full shadow-xl">
           <CardContent className="py-12 text-center space-y-4">
             <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
             <h2 className="text-2xl font-bold">You&apos;re in!</h2>
             <p className="text-muted-foreground">You&apos;ve joined <strong>{classroom.name}</strong></p>
             <Link href="/dashboard/classroom">
-              <Button>Go to My Classrooms</Button>
+              <Button className="gap-2"><Users className="h-4 w-4" />Go to My Classrooms</Button>
             </Link>
           </CardContent>
         </Card>
@@ -151,11 +151,27 @@ export default function JoinInvitePage() {
             )}
           </div>
 
-          {/* Join button */}
-          <Button className="w-full gap-2" size="lg" onClick={handleJoin} disabled={joining}>
-            {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
-            {joining ? "Joining..." : "Join Classroom"}
-          </Button>
+          {/* Join / Login buttons */}
+          {needsLogin ? (
+            <div className="space-y-3">
+              <p className="text-sm text-center text-muted-foreground">
+                Sign in to join this classroom
+              </p>
+              <div className="flex gap-2">
+                <Link href={`/login?callbackUrl=${encodeURIComponent(`/join/${params.token}`)}`} className="flex-1">
+                  <Button className="w-full">Sign In</Button>
+                </Link>
+                <Link href={`/register?callbackUrl=${encodeURIComponent(`/join/${params.token}`)}`} className="flex-1">
+                  <Button variant="outline" className="w-full">Sign Up</Button>
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <Button className="w-full gap-2" size="lg" onClick={handleJoin} disabled={joining}>
+              {joining ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
+              {joining ? "Joining..." : "Join Classroom"}
+            </Button>
+          )}
 
           <p className="text-xs text-center text-muted-foreground">
             Or enter code <strong className="text-primary">{classroom.joinCode}</strong> on{" "}
