@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
+import { useViewTracking } from "@/hooks/use-view-tracking";
 import {
   Loader2, ArrowLeft, Eye, FileText, FileVideo, FileAudio,
   Image as ImageIcon, BookOpen, Download,
@@ -34,14 +35,18 @@ function ContentTypeIcon({ type, className }: { type: string; className?: string
 
 export default function StudentContentViewPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const classroomId = searchParams.get("classroom") ? Number(searchParams.get("classroom")) : undefined;
   const [content, setContent] = useState<ContentDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Track view
-    fetch(`/api/content/${params.id}/view`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+  // View tracking with 30s heartbeat for video/audio
+  const { onPlay, onPause, onTimeUpdate, onEnded } = useViewTracking(
+    Number(params.id),
+    classroomId
+  );
 
-    // Fetch content detail
+  useEffect(() => {
     fetch(`/api/creators/content/${params.id}`)
       .then(r => r.json())
       .then(res => { if (res.success) setContent(res.data); })
@@ -88,14 +93,31 @@ export default function StudentContentViewPage() {
       {/* Media content */}
       {content.contentType === "video" && content.mediaUrl && (
         <div className="rounded-lg border bg-black overflow-hidden">
-          <video src={content.mediaUrl} controls className="w-full aspect-video" poster={content.thumbnailUrl || undefined} />
+          <video
+            src={content.mediaUrl}
+            controls
+            className="w-full aspect-video"
+            poster={content.thumbnailUrl || undefined}
+            onPlay={onPlay}
+            onPause={onPause}
+            onTimeUpdate={onTimeUpdate}
+            onEnded={onEnded}
+          />
         </div>
       )}
 
       {content.contentType === "audio" && content.mediaUrl && (
         <Card>
           <CardContent className="py-6">
-            <audio src={content.mediaUrl} controls className="w-full" />
+            <audio
+              src={content.mediaUrl}
+              controls
+              className="w-full"
+              onPlay={onPlay}
+              onPause={onPause}
+              onTimeUpdate={onTimeUpdate}
+              onEnded={onEnded}
+            />
           </CardContent>
         </Card>
       )}

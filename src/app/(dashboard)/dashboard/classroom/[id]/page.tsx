@@ -109,7 +109,7 @@ export default function StudentClassroomDetailPage() {
           </Card>
         ) : (
           content.map(item => (
-            <Link key={item.id} href={`/dashboard/content/${item.id}`} onClick={() => trackView(item.id)}>
+            <Link key={item.id} href={`/dashboard/content/${item.id}?classroom=${params.id}`} onClick={() => trackView(item.id)}>
               <Card className="hover:border-primary/30 transition-colors cursor-pointer">
                 <CardContent className="flex items-center gap-4 py-4">
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted/50 border overflow-hidden">
