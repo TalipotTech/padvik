@@ -13,3 +13,4 @@ export * from "./notifications";
 export * from "./creators";
 export * from "./doubts";
 export * from "./subscriptions";
+export * from "./schools";

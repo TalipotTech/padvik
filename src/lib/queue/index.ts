@@ -452,6 +452,41 @@ export async function addCreatorContentJob(
 }
 
 // ---------------------------------------------------------------------------
+// School Import Queue
+// ---------------------------------------------------------------------------
+export interface SchoolImportJobData {
+  source: string;
+  stateFilter?: string;
+  csvPath?: string;
+}
+
+let _schoolImportQueue: Queue<SchoolImportJobData> | null = null;
+
+export function getSchoolImportQueue(): Queue<SchoolImportJobData> {
+  if (!_schoolImportQueue) {
+    _schoolImportQueue = new Queue<SchoolImportJobData>(
+      "import-schools",
+      {
+        connection: getRedisConnection(),
+        defaultJobOptions: {
+          attempts: 2,
+          backoff: { type: "exponential", delay: 10000 },
+          removeOnComplete: { count: 50 },
+          removeOnFail: { count: 50 },
+        },
+      }
+    );
+  }
+  return _schoolImportQueue;
+}
+
+export async function addSchoolImportJob(data: SchoolImportJobData): Promise<string> {
+  const queue = getSchoolImportQueue();
+  const job = await queue.add(`import-${data.source}`, data, { priority: 5 });
+  return job.id ?? "";
+}
+
+// ---------------------------------------------------------------------------
 // Queue control helpers
 // ---------------------------------------------------------------------------
 export async function pauseScrapeQueue(): Promise<void> {
