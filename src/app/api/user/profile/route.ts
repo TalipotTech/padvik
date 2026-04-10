@@ -18,7 +18,7 @@ async function getUserId(): Promise<number | null> {
 }
 
 /**
- * GET /api/user/profile — Get user profile including saved board/grade
+ * GET /api/user/profile — Get full user profile
  */
 export async function GET() {
   const userId = await getUserId();
@@ -34,10 +34,26 @@ export async function GET() {
       id: users.id,
       fullName: users.fullName,
       email: users.email,
+      phone: users.phone,
+      avatarUrl: users.avatarUrl,
       role: users.role,
+      institution: users.institution,
       boardId: users.boardId,
       standardId: users.standardId,
+      isVerified: users.isVerified,
+      emailVerified: users.emailVerified,
+      phoneVerified: users.phoneVerified,
+      guardianName: users.guardianName,
+      guardianPhone: users.guardianPhone,
+      guardianEmail: users.guardianEmail,
+      guardianRelation: users.guardianRelation,
+      dateOfBirth: users.dateOfBirth,
+      gender: users.gender,
+      city: users.city,
+      state: users.state,
+      isCreator: users.isCreator,
       preferences: users.preferences,
+      createdAt: users.createdAt,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -71,27 +87,29 @@ export async function GET() {
 
   return NextResponse.json({
     success: true,
-    data: {
-      id: user.id,
-      fullName: user.fullName,
-      email: user.email,
-      role: user.role,
-      boardId: user.boardId,
-      standardId: user.standardId,
-      grade,
-      boardCode,
-      boardName,
-    },
+    data: { ...user, grade, boardCode, boardName },
   });
 }
 
 /**
- * PATCH /api/user/profile — Update user profile (board/grade selection)
+ * PATCH /api/user/profile — Update user profile
  */
 const PatchSchema = z.object({
+  fullName: z.string().min(1).max(255).optional(),
+  phone: z.string().min(8).max(20).optional().nullable(),
+  institution: z.string().max(255).optional().nullable(),
   boardId: z.number().int().positive().optional(),
   grade: z.number().int().min(1).max(12).optional(),
-  fullName: z.string().min(1).max(255).optional(),
+  avatarUrl: z.string().optional().nullable(),
+  dateOfBirth: z.string().max(10).optional().nullable(),
+  gender: z.enum(["male", "female", "other"]).optional().nullable(),
+  city: z.string().max(100).optional().nullable(),
+  state: z.string().max(100).optional().nullable(),
+  // Guardian fields
+  guardianName: z.string().max(255).optional().nullable(),
+  guardianPhone: z.string().max(20).optional().nullable(),
+  guardianEmail: z.string().email().optional().nullable(),
+  guardianRelation: z.enum(["father", "mother", "guardian", "other"]).optional().nullable(),
 });
 
 export async function PATCH(request: NextRequest) {
@@ -103,17 +121,28 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const body = await request.json();
+  let body;
+  try { body = await request.json(); } catch {
+    return NextResponse.json({ success: false, error: { code: "INVALID_JSON", message: "Invalid JSON" } }, { status: 400 });
+  }
+
   const parsed = PatchSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
-      { success: false, error: { code: "VALIDATION_ERROR", message: parsed.error.message } },
+      { success: false, error: { code: "VALIDATION_ERROR", message: parsed.error.issues[0].message } },
       { status: 400 }
     );
   }
 
-  const { boardId, grade, fullName } = parsed.data;
+  const { boardId, grade, ...rest } = parsed.data;
   const updates: Record<string, unknown> = { updatedAt: new Date() };
+
+  // Copy all non-undefined fields
+  for (const [key, value] of Object.entries(rest)) {
+    if (value !== undefined) {
+      updates[key] = value;
+    }
+  }
 
   if (boardId !== undefined) {
     updates.boardId = boardId;
@@ -126,14 +155,9 @@ export async function PATCH(request: NextRequest) {
       .from(standards)
       .where(and(eq(standards.boardId, boardId), eq(standards.grade, grade)))
       .limit(1);
-
     if (std) {
       updates.standardId = std.id;
     }
-  }
-
-  if (fullName !== undefined) {
-    updates.fullName = fullName;
   }
 
   await db.update(users).set(updates).where(eq(users.id, userId));
