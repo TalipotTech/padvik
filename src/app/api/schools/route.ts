@@ -33,13 +33,30 @@ export async function GET(request: NextRequest) {
   if (classesTo) conditions.push(sql`${schools.classesTo} >= ${classesTo}`);
   if (isPartner === "true") conditions.push(eq(schools.isPartner, true));
 
-  // Fuzzy name search with pg_trgm
+  // Fuzzy search across name + city + district + address
   if (q && q.length >= 2) {
-    conditions.push(sql`similarity(${schools.name}, ${q}) > 0.15`);
+    // Combine name, city, district into a single searchable string
+    // Use OR to match any field, plus similarity on name for fuzzy ranking
+    conditions.push(sql`(
+      similarity(${schools.name}, ${q}) > 0.1
+      OR ${schools.name} ILIKE ${"%" + q + "%"}
+      OR ${schools.city} ILIKE ${"%" + q + "%"}
+      OR ${schools.district} ILIKE ${"%" + q + "%"}
+      OR ${schools.address} ILIKE ${"%" + q + "%"}
+      OR (${schools.name} || ' ' || COALESCE(${schools.city}, '') || ' ' || COALESCE(${schools.district}, '')) ILIKE ${"%" + q + "%"}
+    )`);
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-  const orderBy = q ? sql`similarity(${schools.name}, ${q}) DESC` : desc(schools.updatedAt);
+  // Rank by: exact name match first, then fuzzy name similarity, then other field matches
+  const orderBy = q
+    ? sql`(
+        CASE WHEN ${schools.name} ILIKE ${"%" + q + "%"} THEN 2 ELSE 0 END
+        + similarity(${schools.name}, ${q})
+        + CASE WHEN ${schools.city} ILIKE ${"%" + q + "%"} THEN 0.3 ELSE 0 END
+        + CASE WHEN ${schools.district} ILIKE ${"%" + q + "%"} THEN 0.3 ELSE 0 END
+      ) DESC`
+    : desc(schools.updatedAt);
 
   const [items, countResult] = await Promise.all([
     db.select({
