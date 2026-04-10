@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Moon, Sun, Monitor, Camera, CheckCircle, AlertCircle, Mail, Phone, Shield, User, Users, MapPin, Loader2, Save } from "lucide-react";
+import { Moon, Sun, Monitor, Camera, CheckCircle, AlertCircle, Mail, Phone, Shield, User, Users, MapPin, Loader2, Save, Search, School, X } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,103 @@ interface UserProfile {
   guardianEmail: string | null; guardianRelation: string | null;
   dateOfBirth: string | null; gender: string | null;
   city: string | null; state: string | null; createdAt: string;
+}
+
+// ── School Search Input — debounced API search, no bulk loading ──
+function SchoolSearchInput({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+  const [query, setQuery] = useState(value);
+  const [results, setResults] = useState<Array<{ id: number; name: string; district: string | null; state: string | null; boardCode: string | null }>>([]);
+  const [open, setOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Sync external value
+  useEffect(() => { setQuery(value); }, [value]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  function handleInputChange(text: string) {
+    setQuery(text);
+    onChange(text); // always sync typed value
+
+    // Debounced search — only when 3+ chars
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (text.length < 3) { setResults([]); setOpen(false); return; }
+
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(`/api/schools?q=${encodeURIComponent(text)}&limit=8`);
+        const data = await res.json();
+        if (data.success && data.data.items.length > 0) {
+          setResults(data.data.items);
+          setOpen(true);
+        } else {
+          setResults([]);
+          setOpen(false);
+        }
+      } catch { setResults([]); }
+      setSearching(false);
+    }, 300);
+  }
+
+  function selectSchool(name: string) {
+    setQuery(name);
+    onChange(name);
+    setOpen(false);
+    setResults([]);
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+        <Input
+          value={query}
+          onChange={e => handleInputChange(e.target.value)}
+          onFocus={() => { if (results.length > 0) setOpen(true); }}
+          placeholder="Type to search schools or enter manually..."
+          className="pl-9 pr-8"
+        />
+        {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        {query && !searching && (
+          <button onClick={() => { setQuery(""); onChange(""); setResults([]); setOpen(false); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Dropdown results */}
+      {open && results.length > 0 && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover shadow-lg max-h-[240px] overflow-y-auto">
+          {results.map(s => (
+            <button
+              key={s.id}
+              type="button"
+              className="w-full text-left px-3 py-2 hover:bg-accent flex items-center gap-2 text-sm border-b last:border-0"
+              onClick={() => selectSchool(s.name)}
+            >
+              <School className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="truncate font-medium text-xs">{s.name}</p>
+                <p className="text-[10px] text-muted-foreground truncate">
+                  {[s.district, s.state, s.boardCode].filter(Boolean).join(" · ")}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function SettingsPage() {
@@ -250,7 +347,10 @@ export function SettingsPage() {
           </div>
           <div className="space-y-1.5">
             <Label>Institution / School</Label>
-            <Input value={form.institution} onChange={e => setForm({ ...form, institution: e.target.value })} placeholder="School or college name" />
+            <SchoolSearchInput
+              value={form.institution}
+              onChange={(val) => setForm({ ...form, institution: val })}
+            />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
