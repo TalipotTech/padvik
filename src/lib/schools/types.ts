@@ -2,7 +2,10 @@
  * Schools directory types.
  */
 
-export type SchoolSource = "cbse_github" | "udise" | "sametham" | "icse_scrape" | "cbse_saras" | "manual";
+export type SchoolSource =
+  | "cbse_github" | "udise" | "sametham" | "icse_scrape" | "cbse_saras"
+  | "karnataka" | "tamilnadu" | "maharashtra" | "ap" | "telangana"
+  | "manual";
 
 export interface RawSchoolRecord {
   name: string;

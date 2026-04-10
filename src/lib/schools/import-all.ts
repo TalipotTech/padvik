@@ -8,6 +8,10 @@ import { importFromSametham } from "./sources/sametham-kerala";
 import { importFromCbseSaras } from "./sources/cbse-saras";
 import { importFromCisce } from "./sources/icse-cisce";
 import { importFromUdiseDataset } from "./sources/udise-data";
+import { importFromKarnataka } from "./sources/karnataka";
+import { importFromTamilNadu } from "./sources/tamilnadu";
+import { importFromMaharashtra } from "./sources/maharashtra";
+import { importFromAP, importFromTelangana } from "./sources/ap-telangana";
 
 interface ImportOptions {
   sources?: SchoolSource[];
@@ -16,10 +20,6 @@ interface ImportOptions {
   onProgress?: (msg: string) => void;
 }
 
-/**
- * Run school imports from specified sources.
- * Default order: cbse_github → sametham → cbse_saras → icse_scrape → udise
- */
 export async function importAllSchools(options: ImportOptions = {}): Promise<ImportResult[]> {
   const results: ImportResult[] = [];
   const sources = options.sources || ["cbse_github", "sametham", "icse_scrape"];
@@ -50,8 +50,24 @@ export async function importAllSchools(options: ImportOptions = {}): Promise<Imp
         case "udise":
           result = await importFromUdiseDataset(
             options.udiseCsvPath || "data/udise-schools.csv",
-            options.stateFilter
+            options.stateFilter,
+            options.onProgress
           );
+          break;
+        case "karnataka":
+          result = await importFromKarnataka(options.onProgress);
+          break;
+        case "tamilnadu":
+          result = await importFromTamilNadu(options.onProgress);
+          break;
+        case "maharashtra":
+          result = await importFromMaharashtra(options.onProgress);
+          break;
+        case "ap":
+          result = await importFromAP(options.onProgress);
+          break;
+        case "telangana":
+          result = await importFromTelangana(options.onProgress);
           break;
         default:
           console.warn(`Unknown source: ${source}`);

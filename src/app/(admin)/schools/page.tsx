@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Search, Download, CheckCircle, Star, MapPin, Users, Loader2, School, RefreshCw, AlertCircle } from "lucide-react";
+import { Search, Download, CheckCircle, Star, MapPin, Users, Loader2, School, RefreshCw, AlertCircle, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 interface SchoolItem {
@@ -29,10 +29,15 @@ interface ImportInfo {
 }
 
 const SOURCES = [
-  { id: "cbse_github", label: "CBSE (GitHub)", desc: "~20K schools, pre-scraped CSV", time: "~2 min" },
-  { id: "sametham", label: "Kerala (Sametham)", desc: "~15K Kerala schools", time: "~10 min" },
-  { id: "icse_scrape", label: "ICSE (CISCE)", desc: "~2.6K ICSE/ISC schools", time: "~5 min" },
-  { id: "cbse_saras", label: "CBSE SARAS (slow)", desc: "Official CBSE refresh", time: "~hours" },
+  { id: "cbse_github", label: "CBSE (GitHub)", desc: "~20K schools, pre-scraped CSV", time: "~2 min", group: "National" },
+  { id: "sametham", label: "Kerala (Sametham)", desc: "~15K Kerala schools from data bank", time: "~2 min", group: "National" },
+  { id: "icse_scrape", label: "ICSE (CISCE)", desc: "~2.6K ICSE/ISC schools", time: "~5 min", group: "National" },
+  { id: "cbse_saras", label: "CBSE SARAS (slow)", desc: "Official CBSE refresh", time: "~hours", group: "National" },
+  { id: "karnataka", label: "Karnataka", desc: "State board schools", time: "~5 min", group: "State Boards" },
+  { id: "tamilnadu", label: "Tamil Nadu", desc: "State board schools", time: "~5 min", group: "State Boards" },
+  { id: "maharashtra", label: "Maharashtra", desc: "State board schools", time: "~5 min", group: "State Boards" },
+  { id: "ap", label: "Andhra Pradesh", desc: "State board schools", time: "~5 min", group: "State Boards" },
+  { id: "telangana", label: "Telangana", desc: "State board schools", time: "~5 min", group: "State Boards" },
 ];
 
 function ImportStatusBadge({ info }: { info: ImportInfo }) {
@@ -55,6 +60,8 @@ export default function AdminSchoolsPage() {
   const [imports, setImports] = useState<Record<string, ImportInfo>>({});
   const [dbCounts, setDbCounts] = useState<Record<string, number>>({});
   const [triggeringSource, setTriggeringSource] = useState<string | null>(null);
+  const udiseFileRef = useRef<HTMLInputElement>(null);
+  const [uploadingUdise, setUploadingUdise] = useState(false);
 
   const anyActive = Object.values(imports).some(i => i.running);
 
@@ -122,6 +129,29 @@ export default function AdminSchoolsPage() {
       toast.error(`Failed: ${err instanceof Error ? err.message : "Network error"}`);
     }
     setTriggeringSource(null);
+  }
+
+  async function handleUdiseUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingUdise(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/schools/upload-udise", { method: "POST", body: fd });
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : { success: false };
+      if (data.success) {
+        toast.success("UDISE CSV uploaded. Import started!");
+        fetchImportStatus();
+      } else {
+        toast.error(data.error?.message || "Upload failed");
+      }
+    } catch (err) {
+      toast.error(`Upload error: ${err instanceof Error ? err.message : "Failed"}`);
+    }
+    setUploadingUdise(false);
+    if (udiseFileRef.current) udiseFileRef.current.value = "";
   }
 
   function getSourceImport(sourceId: string): ImportInfo | undefined {
@@ -217,6 +247,51 @@ export default function AdminSchoolsPage() {
                     </div>
                   );
                 })}
+
+                {/* UDISE CSV Upload */}
+                <div className="rounded-lg border border-dashed p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">UDISE+ (All India)</p>
+                      <p className="text-xs text-muted-foreground">Upload CSV from udiseplus.gov.in — up to 1.47M schools</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {(dbCounts["udise"] || 0) > 0 && <Badge variant="outline" className="text-xs">{(dbCounts["udise"] || 0).toLocaleString()} in DB</Badge>}
+                      {imports["udise"] && <ImportStatusBadge info={imports["udise"]} />}
+                    </div>
+                  </div>
+
+                  {imports["udise"]?.running && (
+                    <div className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 dark:bg-blue-950/20 rounded p-2">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                      <span className="truncate">{imports["udise"].message}</span>
+                    </div>
+                  )}
+
+                  {imports["udise"] && !imports["udise"].running && (imports["udise"].inserted > 0 || imports["udise"].updated > 0) && (
+                    <p className="text-xs text-green-600">
+                      {imports["udise"].inserted.toLocaleString()} new, {imports["udise"].updated.toLocaleString()} updated
+                      {imports["udise"].durationMs && <span className="text-muted-foreground ml-1">({(imports["udise"].durationMs / 1000).toFixed(0)}s)</span>}
+                    </p>
+                  )}
+
+                  <input ref={udiseFileRef} type="file" className="hidden" accept=".csv" onChange={handleUdiseUpload} />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-1.5"
+                    disabled={uploadingUdise || imports["udise"]?.running}
+                    onClick={() => udiseFileRef.current?.click()}
+                  >
+                    {uploadingUdise ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" />Uploading CSV...</>
+                    ) : imports["udise"]?.running ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" />Processing...</>
+                    ) : (
+                      <><Upload className="h-3.5 w-3.5" />Upload UDISE CSV</>
+                    )}
+                  </Button>
+                </div>
               </div>
             </DialogContent>
           </Dialog>

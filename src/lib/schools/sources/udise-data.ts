@@ -14,9 +14,11 @@ const CHUNK_SIZE = 1000;
 
 export async function importFromUdiseDataset(
   csvPath: string,
-  stateFilter?: string
+  stateFilter?: string,
+  onProgress?: (msg: string) => void
 ): Promise<ImportResult> {
-  console.log(`[udise] Starting UDISE import from ${csvPath}...`);
+  const log = (msg: string) => { console.log(`[udise] ${msg}`); onProgress?.(msg); };
+  log(`Starting UDISE import from ${csvPath}...`);
 
   if (!existsSync(csvPath)) {
     return {
@@ -77,6 +79,9 @@ export async function importFromUdiseDataset(
             combinedResult.inserted += r.inserted;
             combinedResult.updated += r.updated;
             combinedResult.errors.push(...r.errors.slice(0, 10));
+            if (totalParsed % 5000 === 0) {
+              log(`${totalParsed.toLocaleString()} parsed, ${combinedResult.inserted.toLocaleString()} new, ${combinedResult.updated.toLocaleString()} updated`);
+            }
           } catch (err) {
             combinedResult.errors.push(`Batch failed: ${err instanceof Error ? err.message : "unknown"}`);
           }
@@ -95,7 +100,7 @@ export async function importFromUdiseDataset(
         combinedResult.totalRecords = totalParsed;
         combinedResult.skipped = totalParsed - combinedResult.inserted - combinedResult.updated;
         combinedResult.durationMs = Date.now() - start;
-        console.log(`[udise] Complete: ${totalParsed} parsed, ${combinedResult.inserted} inserted, ${combinedResult.updated} updated`);
+        log(`Complete: ${totalParsed.toLocaleString()} parsed, ${combinedResult.inserted.toLocaleString()} inserted, ${combinedResult.updated.toLocaleString()} updated`);
         resolve(combinedResult);
       },
       error: (err) => {
