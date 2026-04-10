@@ -18,7 +18,7 @@ interface ClassroomDetail {
 interface ContentItem {
   id: number; title: string; contentType: string; description: string | null;
   thumbnailUrl: string | null; mediaUrl: string | null; viewCount: number;
-  createdAt: string;
+  aiSummary: string | null; createdAt: string;
 }
 
 function ContentIcon({ type, className }: { type: string; className?: string }) {
@@ -109,26 +109,29 @@ export default function StudentClassroomDetailPage() {
           </Card>
         ) : (
           content.map(item => (
-            <Card key={item.id} className="hover:border-primary/30 transition-colors cursor-pointer" onClick={() => trackView(item.id)}>
-              <CardContent className="flex items-center gap-4 py-4">
-                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted/50 border overflow-hidden">
-                  {item.thumbnailUrl ? (
-                    <img src={item.thumbnailUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <ContentIcon type={item.contentType} className="h-6 w-6" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium">{item.title}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <Badge variant="outline" className="text-[10px] capitalize py-0 h-5">{item.contentType}</Badge>
-                    <span className="text-[10px] text-muted-foreground"><Eye className="h-3 w-3 inline mr-0.5" />{item.viewCount || 0} views</span>
-                    <span className="text-[10px] text-muted-foreground">{new Date(item.createdAt).toLocaleDateString()}</span>
+            <Link key={item.id} href={`/dashboard/content/${item.id}`} onClick={() => trackView(item.id)}>
+              <Card className="hover:border-primary/30 transition-colors cursor-pointer">
+                <CardContent className="flex items-center gap-4 py-4">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted/50 border overflow-hidden">
+                    {item.thumbnailUrl ? (
+                      <img src={item.thumbnailUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <ContentIcon type={item.contentType} className="h-6 w-6" />
+                    )}
                   </div>
-                  {item.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{item.description}</p>}
-                </div>
-              </CardContent>
-            </Card>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium">{item.title}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge variant="outline" className="text-[10px] capitalize py-0 h-5">{item.contentType}</Badge>
+                      <span className="text-[10px] text-muted-foreground"><Eye className="h-3 w-3 inline mr-0.5" />{item.viewCount || 0} views</span>
+                      <span className="text-[10px] text-muted-foreground">{new Date(item.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    {item.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{item.description}</p>}
+                    {item.aiSummary && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1 italic">{item.aiSummary}</p>}
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
           ))
         )}
       </div>
