@@ -11,6 +11,7 @@ import { startScrapeWorker, stopScrapeWorker } from "./scrape-worker";
 import { startContentWorker, stopContentWorker } from "./content-worker";
 import { startFileWorker, stopFileWorker } from "./file-worker";
 import { startAllPipelineWorkers, stopAllPipelineWorkers } from "./pipeline-worker";
+import { startCreatorContentWorker, stopCreatorContentWorker } from "./creator-content-worker";
 import { closeRedis } from "../redis";
 
 async function main() {
@@ -20,6 +21,7 @@ async function main() {
   startContentWorker();
   startFileWorker();
   startAllPipelineWorkers();
+  startCreatorContentWorker();
 
   console.log("[Workers] All workers started. Press Ctrl+C to stop.");
 
@@ -32,6 +34,7 @@ async function main() {
       stopContentWorker(),
       stopFileWorker(),
       stopAllPipelineWorkers(),
+      stopCreatorContentWorker(),
     ]);
 
     await closeRedis();

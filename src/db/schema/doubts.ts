@@ -34,8 +34,11 @@ export const doubts = pgTable(
     }),
     questionText: text("question_text").notNull(),
     questionImages: jsonb("question_images").default([]),
-    status: varchar("status", { length: 20 }).notNull().default("open"), // open, answered, closed
+    status: varchar("status", { length: 20 }).notNull().default("open"), // open, ai_answered, creator_answered, closed
     upvoteCount: integer("upvote_count").notNull().default(0),
+    // --- Added in pipeline phase ---
+    classroomId: bigint("classroom_id", { mode: "number" }), // nullable — null = via follow/browse
+    isPublic: boolean("is_public").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -44,6 +47,7 @@ export const doubts = pgTable(
     index("idx_doubts_creator_id").on(table.creatorId),
     index("idx_doubts_topic_id").on(table.topicId),
     index("idx_doubts_status").on(table.status),
+    index("idx_doubts_classroom_id").on(table.classroomId),
   ]
 );
 
@@ -64,6 +68,7 @@ export const doubtResponses = pgTable(
     responseType: varchar("response_type", { length: 20 }).notNull().default("text"), // text, audio, video
     mediaUrl: text("media_url"),
     isAi: boolean("is_ai").notNull().default(false),
+    isAccepted: boolean("is_accepted").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

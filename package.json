@@ -23,6 +23,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.81.0",
     "@auth/drizzle-adapter": "^1.11.1",
+    "@aws-sdk/client-s3": "^3.1028.0",
+    "@aws-sdk/s3-request-presigner": "^3.1028.0",
     "@google/genai": "^1.48.0",
     "@mistralai/mistralai": "^2.1.2",
     "@radix-ui/react-accordion": "^1.2.12",

@@ -79,6 +79,7 @@ const navItems: NavItem[] = [
 
   // --- Creator ---
   { href: "/dashboard/creator/content", label: "My Content", icon: FolderOpen, section: "Creator", requiresCreator: true },
+  { href: "/dashboard/creator/classrooms", label: "Classrooms", icon: Users, requiresCreator: true },
   { href: "/dashboard/creator/doubts", label: "Doubt Inbox", icon: Inbox, requiresCreator: true },
 
   // --- Admin: Content Pipeline ---

@@ -7,9 +7,8 @@ import { db } from "@/db";
 import { fileUploads } from "@/db/schema/content";
 import { creatorContent, creatorProfiles } from "@/db/schema/creators";
 import { eq, sql } from "drizzle-orm";
-import { existsSync, mkdirSync, writeFileSync } from "fs";
-import { join } from "path";
 import { checkCreator } from "@/lib/check-creator";
+import { uploadToStorage, generateStorageKey } from "@/lib/s3";
 import { aiVision } from "@/lib/ai/provider";
 import {
   type MediaItem,
@@ -101,16 +100,11 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const buffer = Buffer.from(await file.arrayBuffer());
-      const timestamp = Date.now();
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "bin";
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const fileName = `${timestamp}-${safeName}`;
-      const dirPath = join(process.cwd(), "data", "uploads", "creators", String(userId));
-      if (!existsSync(dirPath)) mkdirSync(dirPath, { recursive: true });
-      writeFileSync(join(dirPath, fileName), buffer);
 
-      const storageKey = `data/uploads/creators/${userId}/${fileName}`;
-      const mediaUrl = `/api/uploads/creators/${userId}/${fileName}`;
+      // Upload to S3 or local filesystem
+      const storageKey = generateStorageKey(userId, file.name);
+      const mediaUrl = await uploadToStorage(storageKey, buffer, file.type);
       const mediaType = detectMediaType(file.type);
 
       const [upload] = await db.insert(fileUploads).values({
@@ -183,6 +177,9 @@ export async function POST(request: NextRequest) {
     const pMediaUrl = primaryMediaUrl(mediaItems);
     const pFileUploadId = primaryFileUploadId(mediaItems);
 
+    // Collect original file info from the first (primary) file
+    const primaryFile = files[0];
+
     const [content] = await db.insert(creatorContent).values({
       creatorId: userId,
       contentType,
@@ -201,6 +198,11 @@ export async function POST(request: NextRequest) {
       language,
       reviewStatus: "pending",
       isPublished: false,
+      // New pipeline columns
+      originalFileName: primaryFile?.name ?? null,
+      originalFileType: primaryFile?.type ?? null,
+      originalFileSizeBytes: primaryFile?.size ?? null,
+      uploadStatus: mediaItems.length > 0 ? "processing" : "completed",
       metadata: {
         mediaItems,
         handwritten: handwritten && mediaItems.some(i => i.type === "image"),
@@ -216,6 +218,21 @@ export async function POST(request: NextRequest) {
     await db.update(creatorProfiles)
       .set({ contentCount: sql`${creatorProfiles.contentCount} + 1`, updatedAt: new Date() })
       .where(eq(creatorProfiles.userId, userId));
+
+    // Queue async AI processing (summarize, tag, quality check)
+    try {
+      const { addCreatorContentJob } = await import("@/lib/queue/index");
+      await addCreatorContentJob({
+        contentId: content.id,
+        creatorId: userId,
+        action: "process_full",
+      });
+    } catch {
+      // Queue not available (Redis down) — content still saved, processing skipped
+      await db.update(creatorContent)
+        .set({ uploadStatus: "completed" })
+        .where(eq(creatorContent.id, content.id));
+    }
 
     return NextResponse.json({ success: true, data: content }, { status: 201 });
   } catch (err) {

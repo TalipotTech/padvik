@@ -42,12 +42,18 @@ export const creatorProfiles = pgTable(
     isFeatured: boolean("is_featured").notNull().default(false),
     payoutUpi: varchar("payout_upi", { length: 100 }),
     payoutBank: jsonb("payout_bank"), // {account, ifsc, name}
+    // --- Added in pipeline phase ---
+    coverImageUrl: text("cover_image_url"),
+    verificationStatus: varchar("verification_status", { length: 20 }).notNull().default("unverified"),
+    totalViews: bigint("total_views", { mode: "number" }).notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique("uq_creator_profiles_user_id").on(table.userId),
     index("idx_creator_profiles_user_id").on(table.userId),
+    index("idx_creator_profiles_verification").on(table.verificationStatus),
   ]
 );
 
@@ -98,6 +104,22 @@ export const creatorContent = pgTable(
     isPublished: boolean("is_published").notNull().default(false),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     metadata: jsonb("metadata").default({}),
+    // --- Added in pipeline phase ---
+    slug: varchar("slug", { length: 600 }),
+    originalFileName: varchar("original_file_name", { length: 500 }),
+    originalFileType: varchar("original_file_type", { length: 100 }),
+    originalFileSizeBytes: bigint("original_file_size_bytes", { mode: "number" }),
+    processedUrl: text("processed_url"),
+    aiSummary: text("ai_summary"),
+    aiTags: text("ai_tags").array().default([]),
+    aiTranscript: text("ai_transcript"),
+    aiQualityScore: decimal("ai_quality_score", { precision: 3, scale: 2 }),
+    aiLanguage: varchar("ai_language", { length: 10 }),
+    uploadStatus: varchar("upload_status", { length: 20 }).notNull().default("completed"),
+    reviewNotes: text("review_notes"),
+    doubtCount: bigint("doubt_count", { mode: "number" }).notNull().default(0),
+    totalWatchMinutes: bigint("total_watch_minutes", { mode: "number" }).notNull().default(0),
+    assignedClassrooms: bigint("assigned_classrooms", { mode: "number" }).array().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -106,6 +128,8 @@ export const creatorContent = pgTable(
     index("idx_creator_content_topic_id").on(table.topicId),
     index("idx_creator_content_review_status").on(table.reviewStatus),
     index("idx_creator_content_board_id").on(table.boardId),
+    index("idx_creator_content_slug").on(table.slug),
+    index("idx_creator_content_upload_status").on(table.uploadStatus),
   ]
 );
 
@@ -128,5 +152,35 @@ export const creatorFollowers = pgTable(
     unique("uq_creator_followers_pair").on(table.creatorId, table.studentId),
     index("idx_creator_followers_creator_id").on(table.creatorId),
     index("idx_creator_followers_student_id").on(table.studentId),
+  ]
+);
+
+// ---------------------------------------------------------------------------
+// Content Views — tracks per-user per-content engagement
+// ---------------------------------------------------------------------------
+export const contentViews = pgTable(
+  "content_views",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    contentId: bigint("content_id", { mode: "number" })
+      .notNull()
+      .references(() => creatorContent.id, { onDelete: "cascade" }),
+    userId: bigint("user_id", { mode: "number" }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    creatorId: bigint("creator_id", { mode: "number" }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    classroomId: bigint("classroom_id", { mode: "number" }), // nullable — null = organic view
+    watchedSeconds: integer("watched_seconds").notNull().default(0),
+    completed: boolean("completed").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_content_views_content_user").on(table.contentId, table.userId),
+    index("idx_content_views_creator_student").on(table.creatorId, table.userId, table.createdAt),
+    index("idx_content_views_classroom").on(table.classroomId, table.userId),
+    index("idx_content_views_user_recent").on(table.userId, table.createdAt),
   ]
 );
