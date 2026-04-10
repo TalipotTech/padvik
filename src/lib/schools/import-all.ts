@@ -45,7 +45,7 @@ export async function importAllSchools(options: ImportOptions = {}): Promise<Imp
           result = await importFromCbseSaras(options.stateFilter);
           break;
         case "icse_scrape":
-          result = await importFromCisce(options.stateFilter);
+          result = await importFromCisce(options.stateFilter, options.onProgress);
           break;
         case "udise":
           result = await importFromUdiseDataset(
