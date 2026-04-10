@@ -4,8 +4,21 @@ import { db } from "@/db";
 import { schools } from "@/db/schema/schools";
 import { sql } from "drizzle-orm";
 
+// In-memory progress tracking (shared across requests in same process)
+export const importProgress: Record<string, {
+  running: boolean;
+  source: string;
+  startedAt: number;
+  message: string;
+  inserted: number;
+  updated: number;
+  errors: number;
+  durationMs?: number;
+}> = {};
+
 /**
- * POST /api/admin/schools/import — Queue a school import job via BullMQ
+ * POST /api/admin/schools/import — Run school import directly
+ * Runs in-process (no Redis needed), with progress tracking via GET polling.
  */
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -18,25 +31,70 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: { code: "INVALID_JSON", message: "Invalid JSON" } }, { status: 400 });
   }
 
-  try {
-    const { addSchoolImportJob } = await import("@/lib/queue/index");
-    const jobId = await addSchoolImportJob({ source: body.source, stateFilter: body.stateFilter });
-    return NextResponse.json({
-      success: true,
-      data: { jobId, source: body.source, message: "Import job queued. Ensure workers are running: pnpm workers" },
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    console.error("[schools-import] Queue error:", msg);
+  const { source, stateFilter } = body;
+
+  if (importProgress[source]?.running) {
     return NextResponse.json({
       success: false,
-      error: { code: "QUEUE_ERROR", message: `Failed to queue job. Is Redis running? Error: ${msg}` },
-    }, { status: 500 });
+      error: { code: "ALREADY_RUNNING", message: `Import for ${source} is already running: ${importProgress[source].message}` },
+    }, { status: 409 });
+  }
+
+  // Initialize progress
+  importProgress[source] = {
+    running: true, source, startedAt: Date.now(),
+    message: "Starting...", inserted: 0, updated: 0, errors: 0,
+  };
+
+  // Run in background (non-blocking)
+  runImport(source, stateFilter).catch(err => {
+    importProgress[source] = {
+      ...importProgress[source],
+      running: false,
+      message: `Failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+    };
+  });
+
+  return NextResponse.json({
+    success: true,
+    data: { source, status: "started", message: "Import started. Poll GET /api/admin/schools/import for progress." },
+  });
+}
+
+async function runImport(source: string, stateFilter?: string) {
+  try {
+    const { importAllSchools } = await import("@/lib/schools/import-all");
+
+    const results = await importAllSchools({
+      sources: [source as "cbse_github" | "sametham" | "cbse_saras" | "icse_scrape" | "udise"],
+      stateFilter,
+      onProgress: (msg) => {
+        if (importProgress[source]) {
+          importProgress[source].message = msg;
+        }
+      },
+    });
+
+    const r = results[0];
+    importProgress[source] = {
+      running: false, source, startedAt: importProgress[source]?.startedAt || Date.now(),
+      message: r ? `Done: ${r.inserted} new, ${r.updated} updated` : "Completed (no data)",
+      inserted: r?.inserted || 0,
+      updated: r?.updated || 0,
+      errors: r?.errors?.length || 0,
+      durationMs: r?.durationMs,
+    };
+  } catch (err) {
+    importProgress[source] = {
+      ...importProgress[source],
+      running: false,
+      message: `Error: ${err instanceof Error ? err.message : "Unknown"}`,
+    };
   }
 }
 
 /**
- * GET /api/admin/schools/import — Get import job statuses + DB counts
+ * GET /api/admin/schools/import — Poll import progress + DB counts
  */
 export async function GET() {
   const session = await auth();
@@ -44,39 +102,13 @@ export async function GET() {
     return NextResponse.json({ success: false, error: { code: "UNAUTHORIZED", message: "Admin required" } }, { status: 403 });
   }
 
-  // Get DB counts by source
   const [total] = await db.select({ count: sql<number>`count(*)::int` }).from(schools);
   const bySrc = await db.select({ source: schools.source, count: sql<number>`count(*)::int` }).from(schools).groupBy(schools.source);
-
-  // Get recent jobs from BullMQ queue
-  const jobs: Array<{ id: string; source: string; state: string; progress: unknown; result: unknown; failedReason?: string; startedAt?: number; finishedAt?: number }> = [];
-
-  try {
-    const { getSchoolImportQueue } = await import("@/lib/queue/index");
-    const queue = getSchoolImportQueue();
-    const recentJobs = await queue.getJobs(["active", "completed", "failed", "waiting"], 0, 10);
-
-    for (const job of recentJobs) {
-      const state = await job.getState();
-      jobs.push({
-        id: job.id ?? "",
-        source: job.data.source,
-        state,
-        progress: job.progress,
-        result: job.returnvalue,
-        failedReason: job.failedReason,
-        startedAt: job.processedOn,
-        finishedAt: job.finishedOn,
-      });
-    }
-  } catch {
-    // Redis not available — just return DB counts
-  }
 
   return NextResponse.json({
     success: true,
     data: {
-      jobs,
+      imports: importProgress,
       dbCounts: {
         total: total?.count ?? 0,
         bySource: Object.fromEntries(bySrc.map(s => [s.source, s.count])),

@@ -48,7 +48,10 @@ function slugify(name: string, district?: string, state?: string): string {
 /**
  * Import an array of school records. Handles dedup, normalization, and batch insert.
  */
-export async function importSchools(records: RawSchoolRecord[]): Promise<ImportResult> {
+export async function importSchools(
+  records: RawSchoolRecord[],
+  onProgress?: (msg: string) => void
+): Promise<ImportResult> {
   const start = Date.now();
   const result: ImportResult = {
     source: records[0]?.source || "manual",
@@ -152,8 +155,10 @@ export async function importSchools(records: RawSchoolRecord[]): Promise<ImportR
     }
 
     // Progress log
-    if ((i + BATCH_SIZE) % 2000 === 0 || i + BATCH_SIZE >= records.length) {
-      console.log(`[schools-import] Progress: ${Math.min(i + BATCH_SIZE, records.length)} / ${records.length} (${result.inserted} new, ${result.updated} updated)`);
+    if ((i + BATCH_SIZE) % 1000 === 0 || i + BATCH_SIZE >= records.length) {
+      const msg = `${Math.min(i + BATCH_SIZE, records.length)} / ${records.length} (${result.inserted} new, ${result.updated} updated)`;
+      console.log(`[schools-import] ${msg}`);
+      onProgress?.(msg);
     }
   }
 

@@ -13,6 +13,7 @@ interface ImportOptions {
   sources?: SchoolSource[];
   stateFilter?: string;
   udiseCsvPath?: string;
+  onProgress?: (msg: string) => void;
 }
 
 /**
@@ -35,7 +36,7 @@ export async function importAllSchools(options: ImportOptions = {}): Promise<Imp
 
       switch (source) {
         case "cbse_github":
-          result = await importCbseFromGithub();
+          result = await importCbseFromGithub(options.onProgress);
           break;
         case "sametham":
           result = await importFromSametham(options.stateFilter);

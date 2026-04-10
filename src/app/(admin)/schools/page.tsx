@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Search, Download, CheckCircle, Star, MapPin, Users, Loader2, School, RefreshCw, AlertCircle, Clock } from "lucide-react";
+import { Search, Download, CheckCircle, Star, MapPin, Users, Loader2, School, RefreshCw, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 interface SchoolItem {
@@ -22,10 +22,10 @@ interface Stats {
   byState: { state: string; count: number }[];
 }
 
-interface JobInfo {
-  id: string; source: string; state: string;
-  progress: unknown; result: unknown; failedReason?: string;
-  startedAt?: number; finishedAt?: number;
+interface ImportInfo {
+  running: boolean; source: string; startedAt: number;
+  message: string; inserted: number; updated: number; errors: number;
+  durationMs?: number;
 }
 
 const SOURCES = [
@@ -35,14 +35,11 @@ const SOURCES = [
   { id: "cbse_saras", label: "CBSE SARAS (slow)", desc: "Official CBSE refresh", time: "~hours" },
 ];
 
-function JobStatusBadge({ state }: { state: string }) {
-  switch (state) {
-    case "active": return <Badge className="gap-1 text-xs bg-blue-500"><Loader2 className="h-3 w-3 animate-spin" />Running</Badge>;
-    case "completed": return <Badge className="gap-1 text-xs bg-green-500"><CheckCircle className="h-3 w-3" />Done</Badge>;
-    case "failed": return <Badge variant="destructive" className="gap-1 text-xs"><AlertCircle className="h-3 w-3" />Failed</Badge>;
-    case "waiting": return <Badge variant="secondary" className="gap-1 text-xs"><Clock className="h-3 w-3" />Queued</Badge>;
-    default: return <Badge variant="outline" className="text-xs">{state}</Badge>;
-  }
+function ImportStatusBadge({ info }: { info: ImportInfo }) {
+  if (info.running) return <Badge className="gap-1 text-xs bg-blue-500"><Loader2 className="h-3 w-3 animate-spin" />Running</Badge>;
+  if (info.inserted > 0 || info.updated > 0) return <Badge className="gap-1 text-xs bg-green-500"><CheckCircle className="h-3 w-3" />Done</Badge>;
+  if (info.message.startsWith("Error") || info.message.startsWith("Failed")) return <Badge variant="destructive" className="gap-1 text-xs"><AlertCircle className="h-3 w-3" />Failed</Badge>;
+  return <Badge variant="secondary" className="text-xs">Idle</Badge>;
 }
 
 export default function AdminSchoolsPage() {
@@ -55,11 +52,11 @@ export default function AdminSchoolsPage() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [jobs, setJobs] = useState<JobInfo[]>([]);
+  const [imports, setImports] = useState<Record<string, ImportInfo>>({});
   const [dbCounts, setDbCounts] = useState<Record<string, number>>({});
   const [triggeringSource, setTriggeringSource] = useState<string | null>(null);
 
-  const anyActive = jobs.some(j => j.state === "active" || j.state === "waiting");
+  const anyActive = Object.values(imports).some(i => i.running);
 
   useEffect(() => { fetchStats(); fetchImportStatus(); }, []);
   useEffect(() => { fetchSchools(); }, [query, stateFilter, boardFilter, offset]);
@@ -95,12 +92,14 @@ export default function AdminSchoolsPage() {
   async function fetchImportStatus() {
     try {
       const res = await fetch("/api/admin/schools/import");
-      const data = await res.json();
+      const text = await res.text();
+      if (!text) return;
+      const data = JSON.parse(text);
       if (data.success) {
-        setJobs(data.data.jobs || []);
+        setImports(data.data.imports || {});
         setDbCounts(data.data.dbCounts?.bySource || {});
       }
-    } catch { /* Redis may be down */ }
+    } catch { /* ignore */ }
   }
 
   async function triggerImport(source: string) {
@@ -125,8 +124,8 @@ export default function AdminSchoolsPage() {
     setTriggeringSource(null);
   }
 
-  function getSourceJob(sourceId: string): JobInfo | undefined {
-    return jobs.find(j => j.source === sourceId);
+  function getSourceImport(sourceId: string): ImportInfo | undefined {
+    return imports[sourceId];
   }
 
   async function toggleVerified(id: number, current: boolean) {
@@ -162,9 +161,9 @@ export default function AdminSchoolsPage() {
               </p>
               <div className="space-y-3">
                 {SOURCES.map(s => {
-                  const job = getSourceJob(s.id);
+                  const info = getSourceImport(s.id);
                   const count = dbCounts[s.id] || 0;
-                  const isActive = job?.state === "active" || job?.state === "waiting";
+                  const isRunning = info?.running;
                   return (
                     <div key={s.id} className="rounded-lg border p-3 space-y-2">
                       <div className="flex items-center justify-between">
@@ -174,29 +173,43 @@ export default function AdminSchoolsPage() {
                         </div>
                         <div className="flex items-center gap-2">
                           {count > 0 && <Badge variant="outline" className="text-xs">{count.toLocaleString()} in DB</Badge>}
-                          {job && <JobStatusBadge state={job.state} />}
+                          {info && <ImportStatusBadge info={info} />}
                         </div>
                       </div>
 
-                      {/* Job result details */}
-                      {job?.state === "completed" && (
-                        <p className="text-xs text-green-600">Completed</p>
+                      {/* Live progress message */}
+                      {info?.running && (
+                        <div className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 dark:bg-blue-950/20 rounded p-2">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                          <span className="truncate">{info.message}</span>
+                        </div>
                       )}
-                      {job?.state === "failed" && job.failedReason && (
-                        <p className="text-xs text-destructive truncate">{job.failedReason}</p>
+
+                      {/* Completed result */}
+                      {info && !info.running && (info.inserted > 0 || info.updated > 0) && (
+                        <p className="text-xs text-green-600">
+                          {info.inserted} new, {info.updated} updated
+                          {info.errors > 0 && <span className="text-destructive ml-1">({info.errors} errors)</span>}
+                          {info.durationMs && <span className="text-muted-foreground ml-1">({(info.durationMs / 1000).toFixed(0)}s)</span>}
+                        </p>
+                      )}
+
+                      {/* Error message */}
+                      {info && !info.running && info.message.startsWith("Error") && (
+                        <p className="text-xs text-destructive">{info.message}</p>
                       )}
 
                       <Button
                         variant="outline"
                         size="sm"
                         className="w-full gap-1.5"
-                        disabled={isActive || triggeringSource === s.id}
+                        disabled={!!isRunning || triggeringSource === s.id}
                         onClick={() => triggerImport(s.id)}
                       >
-                        {isActive ? (
-                          <><Loader2 className="h-3.5 w-3.5 animate-spin" />Running...</>
+                        {isRunning ? (
+                          <><Loader2 className="h-3.5 w-3.5 animate-spin" />Importing...</>
                         ) : triggeringSource === s.id ? (
-                          <><Loader2 className="h-3.5 w-3.5 animate-spin" />Queuing...</>
+                          <><Loader2 className="h-3.5 w-3.5 animate-spin" />Starting...</>
                         ) : (
                           <><Download className="h-3.5 w-3.5" />{count > 0 ? "Refresh" : "Import"} · {s.time}</>
                         )}
@@ -227,7 +240,7 @@ export default function AdminSchoolsPage() {
           <div>
             <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Import in progress</p>
             <p className="text-xs text-blue-600 dark:text-blue-400">
-              {jobs.filter(j => j.state === "active").map(j => j.source).join(", ") || "Waiting in queue..."}
+              {Object.values(imports).filter(i => i.running).map(i => `${i.source}: ${i.message}`).join(" · ") || "Processing..."}
             </p>
           </div>
         </div>
