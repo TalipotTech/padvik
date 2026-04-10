@@ -150,18 +150,46 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
               )}
             </div>
           </div>
-          {(userRole === "student" || userRole === "teacher" || userRole === "creator") && (
+          {(userRole === "student" || userRole === "teacher" || userRole === "creator") && boardName && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => setPickerOpen(true)}
               className="shrink-0"
             >
-              {boardName ? "Change" : "Select Board"}
+              Change
             </Button>
           )}
         </div>
       </div>
+
+      {/* Onboarding CTA — shown when board/grade not set */}
+      {!boardId && (userRole === "student" || userRole === "teacher" || userRole === "creator") && (
+        <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 shrink-0">
+              <GraduationCap className="h-6 w-6 text-primary" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold">Set up your profile</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Select your education board and class to see relevant content, subjects, and exam papers tailored for you.
+              </p>
+              <div className="flex gap-3 mt-4">
+                <Button onClick={() => setPickerOpen(true)} className="gap-2">
+                  <GraduationCap className="h-4 w-4" />
+                  Select Board &amp; Class
+                </Button>
+                <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => {
+                  // Skip — just dismiss (will show again next visit until they set it)
+                }}>
+                  Skip for now
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Continue Learning — shown at top for students */}
       {continueData.length > 0 && (userRole === "student" || userRole === "teacher" || userRole === "creator") && (

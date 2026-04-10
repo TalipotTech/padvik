@@ -5,6 +5,7 @@ import { Header } from "@/components/layout/header";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { Toaster } from "@/components/ui/sonner";
 import { FloatingChatWidget } from "@/components/chat/floating-chat-widget";
+import { UserSessionSync } from "@/components/layout/user-session-sync";
 import { db } from "@/db";
 import { users } from "@/db/schema/auth";
 import { creatorProfiles } from "@/db/schema/creators";
@@ -71,8 +72,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
     await signOut({ redirectTo: "/login" });
   }
 
+  // Get the userId for session sync (clear stale localStorage from previous user)
+  const sessionUserId = session?.user?.id || "dev";
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <UserSessionSync userId={sessionUserId} />
       <Sidebar user={user} signOutAction={handleSignOut} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header user={user} signOutAction={handleSignOut} />

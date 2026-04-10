@@ -3,6 +3,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 const STORAGE_KEY = "padvik-board-selection";
+const USER_KEY = "padvik-board-user"; // tracks which userId the selection belongs to
 
 export interface BoardSelection {
   boardId: number | null;
@@ -48,10 +49,31 @@ function subscribe(cb: () => void) {
 }
 
 function emitChange() {
+  // Reset cache so getSnapshot re-reads from localStorage
+  cachedRaw = null;
   for (const listener of listeners) listener();
 }
 
-// Hydrate from profile API if localStorage is empty (one-time)
+/**
+ * Ensure localStorage selection belongs to the current user.
+ * Clears stale data from a previous user's session.
+ */
+export function ensureUserSelection(userId: string | number) {
+  if (typeof window === "undefined") return;
+  const storedUser = localStorage.getItem(USER_KEY);
+  const currentUser = String(userId);
+
+  if (storedUser && storedUser !== currentUser) {
+    // Different user — clear the old selection
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.setItem(USER_KEY, currentUser);
+    emitChange();
+  } else if (!storedUser) {
+    localStorage.setItem(USER_KEY, currentUser);
+  }
+}
+
+// Hydrate from profile API if localStorage is empty (one-time per page load)
 let hydrated = false;
 function hydrateFromProfile() {
   if (hydrated || typeof window === "undefined") return;
@@ -76,6 +98,13 @@ function hydrateFromProfile() {
       emitChange();
     })
     .catch(() => { /* non-critical */ });
+}
+
+/** Reset hydration flag — call when user signs out so next login re-fetches */
+export function resetBoardHydration() {
+  hydrated = false;
+  cachedRaw = null;
+  cachedSelection = defaultSelection;
 }
 
 export function useBoardSelection() {
