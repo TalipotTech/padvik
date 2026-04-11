@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Users,
   FolderOpen,
@@ -67,19 +68,30 @@ function ContentTypeIcon({ type, className }: { type: string; className?: string
   }
 }
 
+interface RecentDoubt {
+  id: number; studentName: string; studentAvatar: string | null;
+  questionText: string; status: string; createdAt: string;
+}
+
 export default function CreatorHubPage() {
   const [profile, setProfile] = useState<CreatorProfile | null>(null);
   const [recentContent, setRecentContent] = useState<ContentItem[]>([]);
+  const [recentDoubts, setRecentDoubts] = useState<RecentDoubt[]>([]);
+  const [unreadDoubts, setUnreadDoubts] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       fetch("/api/creators/profile").then((r) => r.json()),
       fetch("/api/creators/content?limit=5").then((r) => r.json()),
+      fetch("/api/doubts/inbox?limit=5").then((r) => r.json()),
+      fetch("/api/doubts/unread-count").then((r) => r.json()),
     ])
-      .then(([profileRes, contentRes]) => {
+      .then(([profileRes, contentRes, doubtsRes, unreadRes]) => {
         if (profileRes.success) setProfile(profileRes.data);
         if (contentRes.success) setRecentContent(contentRes.data.items);
+        if (doubtsRes.success) setRecentDoubts(doubtsRes.data.items || []);
+        if (unreadRes.success) setUnreadDoubts(unreadRes.data.count || 0);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -151,8 +163,8 @@ export default function CreatorHubPage() {
             <Inbox className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">—</div>
-            <p className="text-xs text-muted-foreground">Check inbox</p>
+            <div className={`text-2xl font-bold ${unreadDoubts > 0 ? "text-red-500" : ""}`}>{unreadDoubts}</div>
+            <p className="text-xs text-muted-foreground">{unreadDoubts > 0 ? "Needs your response" : "All caught up"}</p>
           </CardContent>
         </Card>
       </div>
@@ -296,6 +308,62 @@ export default function CreatorHubPage() {
                     <span className="text-xs text-muted-foreground shrink-0">
                       {new Date(item.createdAt).toLocaleDateString()}
                     </span>
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Recent Doubts */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            Recent Doubts
+            {unreadDoubts > 0 && (
+              <Badge variant="destructive" className="text-xs">{unreadDoubts} new</Badge>
+            )}
+          </h2>
+          {recentDoubts.length > 0 && (
+            <Link href="/dashboard/creator/doubts">
+              <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                View all <ChevronRight className="h-3 w-3" />
+              </Button>
+            </Link>
+          )}
+        </div>
+        {recentDoubts.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center py-8 gap-2">
+              <Inbox className="h-8 w-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">No doubts yet</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-2">
+            {recentDoubts.map((d) => (
+              <Link key={d.id} href={`/dashboard/doubts/${d.id}`}>
+                <Card className={`hover:border-primary/30 transition-colors cursor-pointer ${d.status === "open" ? "border-red-200 dark:border-red-800" : ""}`}>
+                  <CardContent className="flex items-center gap-3 py-3">
+                    <Avatar className="h-8 w-8 shrink-0">
+                      <AvatarImage src={d.studentAvatar || undefined} />
+                      <AvatarFallback className="text-xs">{d.studentName?.[0] || "S"}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{d.studentName}</span>
+                        <Badge
+                          variant={d.status === "open" ? "destructive" : d.status === "creator_answered" ? "default" : "outline"}
+                          className="text-[10px] py-0 h-5"
+                        >
+                          {d.status === "open" ? "Needs Response" : d.status === "ai_answered" ? "AI Answered" : d.status === "creator_answered" ? "Responded" : d.status}
+                        </Badge>
+                        {d.status === "open" && <div className="h-2 w-2 rounded-full bg-red-500" />}
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{d.questionText}</p>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground shrink-0">{new Date(d.createdAt).toLocaleDateString()}</span>
                   </CardContent>
                 </Card>
               </Link>
