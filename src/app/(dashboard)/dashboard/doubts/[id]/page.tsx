@@ -8,7 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
 import {
   Loader2, Send, CheckCircle, Sparkles, ArrowLeft, Paperclip,
-  Image as ImageIcon, FileText, X,
+  Image as ImageIcon, FileText, X, Camera, Mic, Square,
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -46,9 +46,15 @@ export default function DoubtChatPage() {
   const [sending, setSending] = useState(false);
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const [attachPreview, setAttachPreview] = useState<string | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => { fetchDoubt(); }, [params.id]);
 
@@ -175,6 +181,64 @@ export default function DoubtChatPage() {
     setAttachPreview(null);
   }
 
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const file = new File([blob], `voice-${Date.now()}.webm`, { type: "audio/webm" });
+        setAttachFile(file);
+        setAttachPreview(null); // audio has no image preview
+        stream.getTracks().forEach(t => t.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingTimerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
+    } catch {
+      toast.error("Microphone access denied. Please allow microphone in browser settings.");
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+  }
+
+  function cancelRecording() {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecording(false);
+    setAttachFile(null);
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    audioChunksRef.current = [];
+  }
+
+  function formatRecordTime(secs: number): string {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
   if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
   if (!doubt) return <p className="text-muted-foreground py-10 text-center">Doubt not found.</p>;
 
@@ -292,6 +356,11 @@ export default function DoubtChatPage() {
         <div className="mx-2 mb-1 p-2 rounded-lg border bg-muted/50 flex items-center gap-2">
           {attachPreview ? (
             <img src={attachPreview} alt="" className="h-12 w-12 rounded object-cover" />
+          ) : attachFile.type.startsWith("audio/") ? (
+            <div className="flex items-center gap-2">
+              <Mic className="h-5 w-5 text-red-500" />
+              <audio src={URL.createObjectURL(attachFile)} controls className="h-8" />
+            </div>
           ) : (
             <FileText className="h-8 w-8 text-muted-foreground" />
           )}
@@ -303,30 +372,67 @@ export default function DoubtChatPage() {
         </div>
       )}
 
-      {/* Input area — WhatsApp style */}
+      {/* Input area — WhatsApp style with camera + mic */}
       {!isClosed ? (
-        <div className="flex items-end gap-2 p-2 border-t bg-background shrink-0">
-          <input ref={fileInputRef} type="file" className="hidden" accept="image/*,audio/*,video/*,.pdf,.docx" onChange={handleFileSelect} />
-          <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => fileInputRef.current?.click()}>
-            <Paperclip className="h-4 w-4 text-muted-foreground" />
-          </Button>
-          <textarea
-            ref={textareaRef}
-            className="flex-1 min-h-[36px] max-h-[120px] rounded-2xl border bg-muted/50 px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type your message..."
-            rows={1}
-          />
-          <Button
-            size="icon"
-            className="h-9 w-9 rounded-full shrink-0"
-            disabled={sending || (!message.trim() && !attachFile)}
-            onClick={handleSend}
-          >
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
+        <div className="border-t bg-background shrink-0">
+          {/* Recording indicator */}
+          {isRecording && (
+            <div className="flex items-center gap-3 px-4 py-2 bg-red-50 dark:bg-red-950/20 border-b">
+              <div className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-sm text-red-600 dark:text-red-400 font-medium flex-1">Recording... {formatRecordTime(recordingTime)}</span>
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={cancelRecording}>Cancel</Button>
+              <Button size="sm" className="h-7 text-xs gap-1 bg-red-500 hover:bg-red-600" onClick={stopRecording}>
+                <Square className="h-3 w-3" />Stop
+              </Button>
+            </div>
+          )}
+
+          <div className="flex items-end gap-1 p-2">
+            {/* Attachment (files) */}
+            <input ref={fileInputRef} type="file" className="hidden" accept="image/*,audio/*,video/*,.pdf,.docx" onChange={handleFileSelect} />
+            <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Attach file" onClick={() => fileInputRef.current?.click()}>
+              <Paperclip className="h-4 w-4 text-muted-foreground" />
+            </Button>
+
+            {/* Camera (opens camera on mobile, file picker on desktop) */}
+            <input ref={cameraInputRef} type="file" className="hidden" accept="image/*" capture="environment" onChange={handleFileSelect} />
+            <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" title="Take photo" onClick={() => cameraInputRef.current?.click()}>
+              <Camera className="h-4 w-4 text-muted-foreground" />
+            </Button>
+
+            {/* Text input */}
+            <textarea
+              ref={textareaRef}
+              className="flex-1 min-h-[36px] max-h-[120px] rounded-2xl border bg-muted/50 px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your message..."
+              rows={1}
+            />
+
+            {/* Mic (voice recording) or Send */}
+            {!message.trim() && !attachFile ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-9 w-9 rounded-full shrink-0 ${isRecording ? "text-red-500" : ""}`}
+                title={isRecording ? "Stop recording" : "Record voice note"}
+                onClick={isRecording ? stopRecording : startRecording}
+              >
+                <Mic className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                className="h-9 w-9 rounded-full shrink-0"
+                disabled={sending || (!message.trim() && !attachFile)}
+                onClick={handleSend}
+              >
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
+            )}
+          </div>
         </div>
       ) : (
         <div className="p-3 border-t text-center text-sm text-muted-foreground bg-muted/30">
