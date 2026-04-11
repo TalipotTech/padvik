@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,9 @@ import { MarkdownRenderer } from "@/components/content/markdown-renderer";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import {
   Loader2, ArrowLeft, Eye, FileText, FileVideo, FileAudio,
-  Image as ImageIcon, BookOpen, Download, HelpCircle,
+  Image as ImageIcon, BookOpen, Download, HelpCircle, Send, X,
 } from "lucide-react";
+import { toast } from "sonner";
 
 interface ContentDetail {
   id: number; contentType: string; title: string; description: string | null;
@@ -158,13 +159,143 @@ export default function StudentContentViewPage() {
         </div>
       )}
 
-      {/* Ask Doubt about this content */}
-      <Link href={`/dashboard/doubts/ask?content=${params.id}${classroomId ? `&classroom=${classroomId}` : ""}`}>
-        <Button variant="outline" className="w-full gap-2">
-          <HelpCircle className="h-4 w-4" />
-          Have a doubt about this content? Ask here
-        </Button>
-      </Link>
+      {/* Floating Ask Doubt CTA */}
+      <FloatingDoubtCTA contentId={Number(params.id)} classroomId={classroomId} />
     </div>
+  );
+}
+
+// ── Floating Doubt CTA with text selection ──
+function FloatingDoubtCTA({ contentId, classroomId }: { contentId: number; classroomId?: number }) {
+  const router = useRouter();
+  const [selectedText, setSelectedText] = useState("");
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const [askOpen, setAskOpen] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [sending, setSending] = useState(false);
+
+  // Listen for text selection
+  useEffect(() => {
+    function handleSelection() {
+      const selection = window.getSelection();
+      const text = selection?.toString().trim() || "";
+      if (text.length > 5) {
+        setSelectedText(text);
+        // Position tooltip near selection
+        const range = selection?.getRangeAt(0);
+        if (range) {
+          const rect = range.getBoundingClientRect();
+          setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top - 10 });
+          setShowTooltip(true);
+        }
+      } else {
+        setShowTooltip(false);
+      }
+    }
+    document.addEventListener("mouseup", handleSelection);
+    return () => document.removeEventListener("mouseup", handleSelection);
+  }, []);
+
+  function askAboutSelection() {
+    setQuestion(selectedText ? `I have a doubt about: "${selectedText.substring(0, 200)}"` : "");
+    setAskOpen(true);
+    setShowTooltip(false);
+  }
+
+  async function handleQuickAsk() {
+    if (!question.trim()) return;
+    setSending(true);
+    const res = await fetch("/api/doubts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        questionText: question,
+        contentId,
+        classroomId: classroomId || undefined,
+        contextType: selectedText ? "text_selection" : undefined,
+        contextText: selectedText || undefined,
+      }),
+    });
+    const data = await res.json();
+    setSending(false);
+    if (data.success) {
+      toast.success("Doubt posted! AI is generating a response...");
+      router.push(`/dashboard/doubts/${data.data.id}`);
+    } else {
+      toast.error(data.error?.message || "Failed");
+    }
+  }
+
+  return (
+    <>
+      {/* Text selection tooltip */}
+      {showTooltip && (
+        <div
+          className="fixed z-50 -translate-x-1/2 -translate-y-full"
+          style={{ left: tooltipPos.x, top: tooltipPos.y }}
+        >
+          <Button
+            size="sm"
+            className="gap-1.5 shadow-lg rounded-full"
+            onClick={askAboutSelection}
+          >
+            <HelpCircle className="h-3.5 w-3.5" />
+            Ask about this
+          </Button>
+        </div>
+      )}
+
+      {/* Floating FAB */}
+      {!askOpen && (
+        <button
+          onClick={() => { setQuestion(""); setAskOpen(true); }}
+          className="fixed bottom-20 right-6 z-40 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center hover:scale-105 transition-transform"
+        >
+          <HelpCircle className="h-6 w-6" />
+        </button>
+      )}
+
+      {/* Slide-up ask panel */}
+      {askOpen && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t shadow-2xl rounded-t-2xl p-4 max-w-3xl mx-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2">
+              <HelpCircle className="h-4 w-4 text-primary" />
+              Ask a Doubt
+            </h3>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAskOpen(false)}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {selectedText && (
+            <div className="rounded-lg border-l-4 border-violet-400 bg-violet-50 dark:bg-violet-950/20 p-2 mb-3">
+              <p className="text-[10px] text-violet-600 font-medium uppercase">Selected text</p>
+              <p className="text-xs italic line-clamp-2">&ldquo;{selectedText.substring(0, 200)}&rdquo;</p>
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <textarea
+              className="flex-1 min-h-[40px] max-h-[100px] rounded-2xl border bg-muted/50 px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleQuickAsk(); } }}
+              placeholder="Type your doubt..."
+              autoFocus
+            />
+            <Button
+              size="icon"
+              className="h-10 w-10 rounded-full shrink-0"
+              disabled={sending || !question.trim()}
+              onClick={handleQuickAsk}
+            >
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

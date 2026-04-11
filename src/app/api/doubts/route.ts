@@ -10,12 +10,17 @@ import { z } from "zod/v4";
 // POST /api/doubts — Student creates a doubt (with optional AI auto-response)
 // ---------------------------------------------------------------------------
 const createSchema = z.object({
-  questionText: z.string().min(10).max(5000),
+  questionText: z.string().min(3).max(5000),
   creatorId: z.number().optional(),
   contentId: z.number().optional(),
   classroomId: z.number().optional(),
   topicId: z.number().optional(),
   questionImages: z.array(z.string()).optional(),
+  // Context from content page
+  contextType: z.enum(["text_selection", "video_timestamp", "audio_timestamp", "pdf_page"]).optional(),
+  contextText: z.string().max(2000).optional(),
+  contextTimestamp: z.number().optional(),
+  contextPage: z.number().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -47,7 +52,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { questionText, creatorId, contentId, classroomId, topicId, questionImages } = parsed.data;
+  const { questionText, creatorId, contentId, classroomId, topicId, questionImages, contextType, contextText, contextTimestamp, contextPage } = parsed.data;
+
+  // Store context info in questionImages JSONB (flexible field)
+  const metadata: Record<string, unknown> = {};
+  if (contextType) metadata.contextType = contextType;
+  if (contextText) metadata.contextText = contextText;
+  if (contextTimestamp !== undefined) metadata.contextTimestamp = contextTimestamp;
+  if (contextPage !== undefined) metadata.contextPage = contextPage;
 
   const [doubt] = await db.insert(doubts).values({
     studentId: userId,
@@ -56,11 +68,12 @@ export async function POST(request: NextRequest) {
     classroomId: classroomId ?? null,
     topicId: topicId ?? null,
     questionText,
-    questionImages: questionImages ?? [],
+    questionImages: Object.keys(metadata).length > 0 ? { ...(questionImages || []), _context: metadata } : (questionImages ?? []),
   }).returning();
 
   // AI auto-response: generate a draft answer using AI (non-blocking)
-  generateAiDraftResponse(doubt.id, questionText).catch(() => {});
+  const contextHint = contextText ? `\n\nContext (selected text): "${contextText}"` : "";
+  generateAiDraftResponse(doubt.id, questionText + contextHint).catch(() => {});
 
   return NextResponse.json({ success: true, data: doubt }, { status: 201 });
 }
