@@ -7,8 +7,8 @@ import { z } from "zod/v4";
 
 const respondSchema = z.object({
   responseText: z.string().min(1).max(10000),
-  responseType: z.enum(["text", "audio", "video"]).optional(),
-  mediaUrl: z.string().url().optional(),
+  responseType: z.enum(["text", "audio", "video", "image", "document"]).optional(),
+  mediaUrl: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
