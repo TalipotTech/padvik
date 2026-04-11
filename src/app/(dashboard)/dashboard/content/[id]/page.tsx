@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { useViewTracking } from "@/hooks/use-view-tracking";
 import {
   Loader2, ArrowLeft, Eye, FileText, FileVideo, FileAudio,
   Image as ImageIcon, BookOpen, Download, HelpCircle, Send, X,
+  Paperclip, Camera, Mic, Square, Sparkles, MessageCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -160,29 +161,41 @@ export default function StudentContentViewPage() {
       )}
 
       {/* Floating Ask Doubt CTA */}
-      <FloatingDoubtCTA contentId={Number(params.id)} classroomId={classroomId} />
+      <FloatingDoubtCTA contentId={Number(params.id)} classroomId={classroomId} content={content} />
     </div>
   );
 }
 
-// ── Floating Doubt CTA with text selection ──
-function FloatingDoubtCTA({ contentId, classroomId }: { contentId: number; classroomId?: number }) {
+// ── Floating Doubt CTA with full chat, audio recording, camera ──
+function FloatingDoubtCTA({ contentId, classroomId, content }: { contentId: number; classroomId?: number; content: ContentDetail }) {
   const router = useRouter();
   const [selectedText, setSelectedText] = useState("");
   const [showTooltip, setShowTooltip] = useState(false);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
-  const [askOpen, setAskOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [sending, setSending] = useState(false);
+  const [history, setHistory] = useState<Array<{ id: number; questionText: string; status: string; createdAt: string }>>([]);
+  const [answerMode, setAnswerMode] = useState<"ai" | "creator">("ai");
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [attachFile, setAttachFile] = useState<File | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Build content context
+  const contentContext = [content.boardName, content.subjectName, content.chapterTitle, content.topicTitle].filter(Boolean).join(" › ");
 
   // Listen for text selection
   useEffect(() => {
     function handleSelection() {
       const selection = window.getSelection();
       const text = selection?.toString().trim() || "";
-      if (text.length > 5) {
+      if (text.length > 5 && !panelOpen) {
         setSelectedText(text);
-        // Position tooltip near selection
         const range = selection?.getRangeAt(0);
         if (range) {
           const rect = range.getBoundingClientRect();
@@ -195,104 +208,217 @@ function FloatingDoubtCTA({ contentId, classroomId }: { contentId: number; class
     }
     document.addEventListener("mouseup", handleSelection);
     return () => document.removeEventListener("mouseup", handleSelection);
-  }, []);
+  }, [panelOpen]);
 
-  function askAboutSelection() {
-    setQuestion(selectedText ? `I have a doubt about: "${selectedText.substring(0, 200)}"` : "");
-    setAskOpen(true);
+  // Load doubt history for this content when panel opens
+  useEffect(() => {
+    if (panelOpen) {
+      fetch(`/api/doubts?mine=true&limit=5`)
+        .then(r => r.json())
+        .then(res => { if (res.success) setHistory(res.data.items || []); })
+        .catch(() => {});
+    }
+  }, [panelOpen]);
+
+  function openPanel(withSelection = false) {
+    if (withSelection && selectedText) {
+      setQuestion(`I have a doubt about: "${selectedText.substring(0, 200)}"`);
+    } else {
+      setQuestion("");
+    }
+    setPanelOpen(true);
     setShowTooltip(false);
   }
 
-  async function handleQuickAsk() {
-    if (!question.trim()) return;
+  async function handleSend() {
+    if (!question.trim() && !attachFile) return;
     setSending(true);
+
+    const body: Record<string, unknown> = {
+      questionText: question || (attachFile ? `[Voice note about: ${content.title}]` : ""),
+      contentId,
+      classroomId: classroomId || undefined,
+      contextType: selectedText ? "text_selection" : undefined,
+      contextText: selectedText || undefined,
+    };
+
+    // If creator mode, don't trigger AI
+    if (answerMode === "creator") {
+      body.questionText = `[For teacher only] ${body.questionText}`;
+    }
+
     const res = await fetch("/api/doubts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        questionText: question,
-        contentId,
-        classroomId: classroomId || undefined,
-        contextType: selectedText ? "text_selection" : undefined,
-        contextText: selectedText || undefined,
-      }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     setSending(false);
+
     if (data.success) {
-      toast.success("Doubt posted! AI is generating a response...");
+      toast.success(answerMode === "ai" ? "AI is generating a response..." : "Sent to your teacher!");
       router.push(`/dashboard/doubts/${data.data.id}`);
     } else {
       toast.error(data.error?.message || "Failed");
     }
   }
 
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      mediaRecorderRef.current = mr;
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        setAttachFile(new File([blob], `voice-${Date.now()}.webm`, { type: "audio/webm" }));
+        stream.getTracks().forEach(t => t.stop());
+      };
+      mr.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      timerRef.current = setInterval(() => setRecordingTime(t => t + 1), 1000);
+    } catch { toast.error("Microphone access denied"); }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) setAttachFile(file);
+    if (e.target === fileRef.current && fileRef.current) fileRef.current.value = "";
+    if (e.target === cameraRef.current && cameraRef.current) cameraRef.current.value = "";
+  }
+
   return (
     <>
       {/* Text selection tooltip */}
       {showTooltip && (
-        <div
-          className="fixed z-50 -translate-x-1/2 -translate-y-full"
-          style={{ left: tooltipPos.x, top: tooltipPos.y }}
-        >
-          <Button
-            size="sm"
-            className="gap-1.5 shadow-lg rounded-full"
-            onClick={askAboutSelection}
-          >
-            <HelpCircle className="h-3.5 w-3.5" />
-            Ask about this
+        <div className="fixed z-50 -translate-x-1/2 -translate-y-full" style={{ left: tooltipPos.x, top: tooltipPos.y }}>
+          <Button size="sm" className="gap-1.5 shadow-lg rounded-full" onClick={() => openPanel(true)}>
+            <HelpCircle className="h-3.5 w-3.5" />Ask about this
           </Button>
         </div>
       )}
 
       {/* Floating FAB */}
-      {!askOpen && (
-        <button
-          onClick={() => { setQuestion(""); setAskOpen(true); }}
-          className="fixed bottom-20 right-6 z-40 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center hover:scale-105 transition-transform"
-        >
+      {!panelOpen && (
+        <button onClick={() => openPanel(false)} className="fixed bottom-20 right-6 z-40 h-14 w-14 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center hover:scale-105 transition-transform">
           <HelpCircle className="h-6 w-6" />
         </button>
       )}
 
-      {/* Slide-up ask panel */}
-      {askOpen && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t shadow-2xl rounded-t-2xl p-4 max-w-3xl mx-auto">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2">
-              <HelpCircle className="h-4 w-4 text-primary" />
-              Ask a Doubt
-            </h3>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setAskOpen(false)}>
-              <X className="h-4 w-4" />
-            </Button>
+      {/* Slide-up chat panel */}
+      {panelOpen && (
+        <div className="fixed bottom-0 left-0 right-0 z-50 bg-background border-t shadow-2xl rounded-t-2xl max-w-3xl mx-auto flex flex-col max-h-[60vh]">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <HelpCircle className="h-4 w-4 text-primary" />Ask a Doubt
+              </h3>
+              <p className="text-[10px] text-muted-foreground truncate">
+                {content.title} {contentContext ? `· ${contentContext}` : ""}
+              </p>
+            </div>
+            {/* AI / Creator toggle */}
+            <div className="flex items-center gap-1 mr-2">
+              <Button variant={answerMode === "ai" ? "default" : "outline"} size="sm" className="h-7 text-[10px] gap-1 px-2" onClick={() => setAnswerMode("ai")}>
+                <Sparkles className="h-3 w-3" />AI
+              </Button>
+              <Button variant={answerMode === "creator" ? "default" : "outline"} size="sm" className="h-7 text-[10px] gap-1 px-2" onClick={() => setAnswerMode("creator")}>
+                <MessageCircle className="h-3 w-3" />Teacher
+              </Button>
+            </div>
+            <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => setPanelOpen(false)}><X className="h-4 w-4" /></Button>
           </div>
 
+          {/* Recent doubt history */}
+          {history.length > 0 && (
+            <div className="px-4 py-2 border-b overflow-x-auto shrink-0">
+              <p className="text-[10px] text-muted-foreground mb-1">Recent doubts</p>
+              <div className="flex gap-2">
+                {history.map(d => (
+                  <Link key={d.id} href={`/dashboard/doubts/${d.id}`}>
+                    <div className="rounded-lg border bg-muted/50 px-3 py-1.5 text-[10px] whitespace-nowrap hover:bg-muted cursor-pointer min-w-[120px]">
+                      <p className="truncate font-medium max-w-[150px]">{d.questionText.substring(0, 40)}...</p>
+                      <p className="text-muted-foreground">{d.status} · {new Date(d.createdAt).toLocaleDateString()}</p>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Context quote */}
           {selectedText && (
-            <div className="rounded-lg border-l-4 border-violet-400 bg-violet-50 dark:bg-violet-950/20 p-2 mb-3">
+            <div className="mx-4 mt-2 rounded-lg border-l-4 border-violet-400 bg-violet-50 dark:bg-violet-950/20 p-2">
               <p className="text-[10px] text-violet-600 font-medium uppercase">Selected text</p>
               <p className="text-xs italic line-clamp-2">&ldquo;{selectedText.substring(0, 200)}&rdquo;</p>
             </div>
           )}
 
-          <div className="flex gap-2">
+          {/* Attachment preview */}
+          {attachFile && (
+            <div className="mx-4 mt-2 p-2 rounded-lg border bg-muted/50 flex items-center gap-2">
+              {attachFile.type.startsWith("image/") ? (
+                <img src={URL.createObjectURL(attachFile)} alt="" className="h-10 w-10 rounded object-cover" />
+              ) : attachFile.type.startsWith("audio/") ? (
+                <Mic className="h-5 w-5 text-red-500" />
+              ) : (
+                <FileText className="h-5 w-5 text-muted-foreground" />
+              )}
+              <span className="text-xs truncate flex-1">{attachFile.name}</span>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setAttachFile(null)}><X className="h-3 w-3" /></Button>
+            </div>
+          )}
+
+          {/* Recording indicator */}
+          {isRecording && (
+            <div className="mx-4 mt-2 flex items-center gap-2 text-xs text-red-600">
+              <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+              Recording {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, "0")}
+              <Button variant="ghost" size="sm" className="h-6 text-[10px] ml-auto" onClick={stopRecording}>
+                <Square className="h-3 w-3 mr-1" />Stop
+              </Button>
+            </div>
+          )}
+
+          {/* Input bar */}
+          <div className="flex items-end gap-1 p-3 shrink-0">
+            <input ref={fileRef} type="file" className="hidden" accept="image/*,audio/*,video/*,.pdf,.docx" onChange={handleFileSelect} />
+            <input ref={cameraRef} type="file" className="hidden" accept="image/*" capture="environment" onChange={handleFileSelect} />
+
+            <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => fileRef.current?.click()}>
+              <Paperclip className="h-4 w-4 text-muted-foreground" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" onClick={() => cameraRef.current?.click()}>
+              <Camera className="h-4 w-4 text-muted-foreground" />
+            </Button>
+
             <textarea
-              className="flex-1 min-h-[40px] max-h-[100px] rounded-2xl border bg-muted/50 px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              className="flex-1 min-h-[36px] max-h-[80px] rounded-2xl border bg-muted/50 px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleQuickAsk(); } }}
-              placeholder="Type your doubt..."
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              placeholder={answerMode === "ai" ? "Ask AI..." : "Ask your teacher..."}
               autoFocus
             />
-            <Button
-              size="icon"
-              className="h-10 w-10 rounded-full shrink-0"
-              disabled={sending || !question.trim()}
-              onClick={handleQuickAsk}
-            >
-              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            </Button>
+
+            {!question.trim() && !attachFile ? (
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full shrink-0" onClick={isRecording ? stopRecording : startRecording}>
+                <Mic className={`h-4 w-4 ${isRecording ? "text-red-500" : "text-muted-foreground"}`} />
+              </Button>
+            ) : (
+              <Button size="icon" className="h-9 w-9 rounded-full shrink-0" disabled={sending} onClick={handleSend}>
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
+            )}
           </div>
         </div>
       )}
