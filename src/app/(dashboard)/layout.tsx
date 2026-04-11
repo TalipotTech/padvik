@@ -77,7 +77,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <UserSessionSync userId={sessionUserId} />
+      <UserSessionSync userId={sessionUserId} isCreator={user.isCreator} />
       <Sidebar user={user} signOutAction={handleSignOut} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header user={user} signOutAction={handleSignOut} />
