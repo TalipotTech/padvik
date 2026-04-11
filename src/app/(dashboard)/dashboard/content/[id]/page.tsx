@@ -10,7 +10,7 @@ import { MarkdownRenderer } from "@/components/content/markdown-renderer";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import {
   Loader2, ArrowLeft, Eye, FileText, FileVideo, FileAudio,
-  Image as ImageIcon, BookOpen, Download,
+  Image as ImageIcon, BookOpen, Download, HelpCircle,
 } from "lucide-react";
 
 interface ContentDetail {
@@ -157,6 +157,14 @@ export default function StudentContentViewPage() {
           ))}
         </div>
       )}
+
+      {/* Ask Doubt about this content */}
+      <Link href={`/dashboard/doubts/ask?content=${params.id}${classroomId ? `&classroom=${classroomId}` : ""}`}>
+        <Button variant="outline" className="w-full gap-2">
+          <HelpCircle className="h-4 w-4" />
+          Have a doubt about this content? Ask here
+        </Button>
+      </Link>
     </div>
   );
 }

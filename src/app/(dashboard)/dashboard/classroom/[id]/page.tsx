@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ArrowLeft, Users, BookOpen, LogOut, FileText, FileVideo, FileAudio, Image as ImageIcon, Eye } from "lucide-react";
+import { Loader2, ArrowLeft, Users, BookOpen, LogOut, FileText, FileVideo, FileAudio, Image as ImageIcon, Eye, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 
 interface ClassroomDetail {
@@ -92,6 +92,14 @@ export default function StudentClassroomDetailPage() {
       </div>
 
       {classroom.description && <p className="text-sm text-muted-foreground">{classroom.description}</p>}
+
+      {/* Ask Doubt button */}
+      <Link href={`/dashboard/doubts/ask?classroom=${params.id}`}>
+        <Button variant="outline" className="w-full gap-2">
+          <HelpCircle className="h-4 w-4" />
+          Ask a Doubt in This Classroom
+        </Button>
+      </Link>
 
       {/* Content Feed from Creator */}
       <div className="space-y-3">
