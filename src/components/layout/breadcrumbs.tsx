@@ -14,6 +14,14 @@ const routeLabels: Record<string, string> = {
   analytics: "Analytics",
   settings: "Settings",
   classroom: "Classroom",
+  classrooms: "Classrooms",
+  creator: "Creator",
+  doubts: "Doubts",
+  content: "Content",
+  upload: "Upload",
+  profile: "Profile",
+  ask: "Ask",
+  schools: "Schools",
   "question-bank": "Question Bank",
   "question-papers": "Question Papers",
   "question-viewer": "Question Viewer",
@@ -21,6 +29,7 @@ const routeLabels: Record<string, string> = {
   "scrape-jobs": "Scrape Jobs",
   curriculum: "Curriculum Explorer",
   "syllabus-viewer": "Syllabus Viewer",
+  "creator-register": "Creator Register",
 };
 
 export function Breadcrumbs() {
