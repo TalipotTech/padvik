@@ -235,17 +235,13 @@ function FloatingDoubtCTA({ contentId, classroomId, content }: { contentId: numb
     setSending(true);
 
     const body: Record<string, unknown> = {
-      questionText: question || (attachFile ? `[Voice note about: ${content.title}]` : ""),
+      questionText: question || (attachFile ? `Voice note about: ${content.title}` : ""),
       contentId,
       classroomId: classroomId || undefined,
       contextType: selectedText ? "text_selection" : undefined,
       contextText: selectedText || undefined,
+      answerMode, // "ai" or "creator" — API decides whether to generate AI response
     };
-
-    // If creator mode, don't trigger AI
-    if (answerMode === "creator") {
-      body.questionText = `[For teacher only] ${body.questionText}`;
-    }
 
     const res = await fetch("/api/doubts", {
       method: "POST",

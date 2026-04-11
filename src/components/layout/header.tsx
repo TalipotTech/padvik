@@ -4,7 +4,9 @@ import { useBoardSelection } from "@/hooks/use-board-selection";
 import { Badge } from "@/components/ui/badge";
 import { MobileSidebar } from "@/components/layout/sidebar";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { DoubtBadge } from "@/components/doubts/doubt-badge";
 import { Sparkles } from "lucide-react";
+import Link from "next/link";
 
 interface HeaderProps {
   user: {
@@ -47,6 +49,9 @@ export function Header({ user, signOutAction }: HeaderProps) {
 
       {/* Right side */}
       <div className="flex items-center gap-2">
+        <Link href={user.isCreator ? "/dashboard/creator/doubts" : "/dashboard/doubts"} className="hover:opacity-80">
+          <DoubtBadge />
+        </Link>
         <NotificationBell />
       </div>
     </header>

@@ -21,6 +21,8 @@ const createSchema = z.object({
   contextText: z.string().max(2000).optional(),
   contextTimestamp: z.number().optional(),
   contextPage: z.number().optional(),
+  // Answer mode: "ai" (default) or "creator" (skip AI, wait for teacher)
+  answerMode: z.enum(["ai", "creator"]).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -52,7 +54,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { questionText, creatorId, contentId, classroomId, topicId, questionImages, contextType, contextText, contextTimestamp, contextPage } = parsed.data;
+  const { questionText, creatorId, contentId, classroomId, topicId, questionImages, contextType, contextText, contextTimestamp, contextPage, answerMode } = parsed.data;
+  const useAi = answerMode !== "creator"; // default is AI mode
 
   // Store context info in questionImages JSONB (flexible field)
   const metadata: Record<string, unknown> = {};
@@ -71,9 +74,11 @@ export async function POST(request: NextRequest) {
     questionImages: Object.keys(metadata).length > 0 ? { ...(questionImages || []), _context: metadata } : (questionImages ?? []),
   }).returning();
 
-  // AI auto-response: generate a draft answer using AI (non-blocking)
-  const contextHint = contextText ? `\n\nContext (selected text): "${contextText}"` : "";
-  generateAiDraftResponse(doubt.id, questionText + contextHint).catch(() => {});
+  // AI auto-response: only if AI mode selected (not teacher mode)
+  if (useAi) {
+    const contextHint = contextText ? `\n\nContext (selected text): "${contextText}"` : "";
+    generateAiDraftResponse(doubt.id, questionText + contextHint).catch(() => {});
+  }
 
   return NextResponse.json({ success: true, data: doubt }, { status: 201 });
 }

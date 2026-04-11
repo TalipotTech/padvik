@@ -258,7 +258,10 @@ export default function DoubtChatPage() {
               variant={doubt.status === "closed" ? "secondary" : doubt.status.includes("answered") ? "default" : "destructive"}
               className="text-[10px] py-0 h-4"
             >
-              {doubt.status === "ai_answered" ? "AI Answered" : doubt.status}
+              {doubt.status === "ai_answered" ? "AI Answered"
+                : doubt.status === "open" ? "Waiting for teacher"
+                : doubt.status === "creator_answered" ? "Teacher Answered"
+                : doubt.status}
             </Badge>
             <span className="text-[10px] text-muted-foreground">{new Date(doubt.createdAt).toLocaleDateString()}</span>
           </div>

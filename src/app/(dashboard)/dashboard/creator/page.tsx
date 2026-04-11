@@ -23,6 +23,7 @@ import {
   Image as ImageIcon,
   ChevronRight,
   BookOpen,
+  HelpCircle,
 } from "lucide-react";
 
 interface CreatorProfile {
@@ -53,6 +54,7 @@ interface ContentItem {
   chapterTitle: string | null;
   chapterNumber: number | null;
   metadata: { mediaItems?: { type: string }[] } | null;
+  doubtCount: number;
 }
 
 function ContentTypeIcon({ type, className }: { type: string; className?: string }) {
@@ -266,6 +268,13 @@ export default function CreatorHubPage() {
                         <span className="text-[10px] text-muted-foreground">
                           {item.viewCount} views
                         </span>
+                        {(item.doubtCount || 0) > 0 && (
+                          <Link href="/dashboard/creator/doubts" onClick={e => e.stopPropagation()}>
+                            <Badge variant="destructive" className="text-[10px] py-0 h-5 gap-0.5 cursor-pointer hover:bg-destructive/80">
+                              <HelpCircle className="h-2.5 w-2.5" />{item.doubtCount}
+                            </Badge>
+                          </Link>
+                        )}
                       </div>
                       {/* Curriculum info */}
                       {(item.boardCode || item.subjectName) && (
