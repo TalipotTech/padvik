@@ -3,6 +3,8 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { users } from "@/db/schema/auth";
 import { doubts, doubtResponses } from "@/db/schema/doubts";
+import { classrooms } from "@/db/schema/classrooms";
+import { creatorContent } from "@/db/schema/creators";
 import { eq, and, desc, sql, ilike } from "drizzle-orm";
 import { z } from "zod/v4";
 
@@ -54,8 +56,19 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { questionText, creatorId, contentId, classroomId, topicId, questionImages, contextType, contextText, contextTimestamp, contextPage, answerMode } = parsed.data;
+  const { questionText, contentId, classroomId, topicId, questionImages, contextType, contextText, contextTimestamp, contextPage, answerMode } = parsed.data;
+  let { creatorId } = parsed.data;
   const useAi = answerMode !== "creator"; // default is AI mode
+
+  // Auto-resolve creatorId from classroom or content if not provided
+  if (!creatorId && classroomId) {
+    const [cr] = await db.select({ teacherId: classrooms.teacherId }).from(classrooms).where(eq(classrooms.id, classroomId)).limit(1);
+    if (cr) creatorId = cr.teacherId;
+  }
+  if (!creatorId && contentId) {
+    const [ct] = await db.select({ creatorId: creatorContent.creatorId }).from(creatorContent).where(eq(creatorContent.id, contentId)).limit(1);
+    if (ct) creatorId = ct.creatorId;
+  }
 
   // Store context info in questionImages JSONB (flexible field)
   const metadata: Record<string, unknown> = {};

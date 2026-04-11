@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { users } from "@/db/schema/auth";
 import { doubts } from "@/db/schema/doubts";
-import { eq, and, desc, sql, or } from "drizzle-orm";
+import { classrooms } from "@/db/schema/classrooms";
+import { creatorContent } from "@/db/schema/creators";
+import { eq, and, desc, sql, or, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { checkCreator } from "@/lib/check-creator";
 
@@ -47,10 +49,17 @@ export async function GET(request: NextRequest) {
   const { status, classroomId, contentId, topicId, page, limit } = parsed.data;
   const offset = (page - 1) * limit;
 
-  // Show doubts targeted at this creator
-  const conditions = [
-    eq(doubts.creatorId, userId),
-  ];
+  // Get creator's classroom IDs and content IDs for broader matching
+  const myClassrooms = await db.select({ id: classrooms.id }).from(classrooms).where(eq(classrooms.teacherId, userId));
+  const myClassroomIds = myClassrooms.map(c => c.id);
+
+  // Show doubts: targeted at this creator OR from their classrooms OR on their content
+  const creatorConditions = [eq(doubts.creatorId, userId)];
+  if (myClassroomIds.length > 0) {
+    creatorConditions.push(inArray(doubts.classroomId, myClassroomIds));
+  }
+
+  const conditions = [or(...creatorConditions)!];
   if (status) conditions.push(eq(doubts.status, status));
   if (classroomId) conditions.push(eq(doubts.classroomId, classroomId));
   if (contentId) conditions.push(eq(doubts.contentId, contentId));
