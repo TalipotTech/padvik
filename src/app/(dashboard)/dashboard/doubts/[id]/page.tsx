@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -40,6 +40,7 @@ interface DoubtDetail {
 
 export default function DoubtChatPage() {
   const params = useParams();
+  const router = useRouter();
   const [doubt, setDoubt] = useState<DoubtDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -267,7 +268,7 @@ export default function DoubtChatPage() {
     <div className="flex flex-col h-[calc(100vh-120px)] max-w-3xl">
       {/* Chat header */}
       <div className="flex items-center gap-3 pb-3 border-b shrink-0">
-        <Link href="/dashboard/doubts"><Button variant="ghost" size="icon"><ArrowLeft className="h-4 w-4" /></Button></Link>
+        <Button variant="ghost" size="icon" onClick={() => router.back()}><ArrowLeft className="h-4 w-4" /></Button>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{doubt.questionText.substring(0, 60)}...</p>
           <div className="flex items-center gap-2">
