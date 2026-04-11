@@ -160,26 +160,13 @@ export default function DoubtChatPage() {
 
   async function askAiNow() {
     setSending(true);
-    // Trigger AI to answer this doubt
-    const questionText = doubt?.questionText || "";
     try {
-      const res = await fetch(`/api/doubts/${params.id}/respond`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ responseText: `[Generating AI response for: "${questionText.substring(0, 100)}..."]`, responseType: "text" }),
-      });
-      // Now trigger AI separately
-      const { aiChat, AI_MODELS } = await import("@/lib/ai/provider");
-      const aiResult = await aiChat(
-        `You are a helpful educational tutor. A student asked:\n\n"${questionText}"\n\nProvide a clear, concise answer for an Indian K-12 student. Use LaTeX for math. Under 300 words.`,
-        { model: AI_MODELS.BULK, temperature: 0.3, maxTokens: 500 }
-      );
-      if (aiResult.content) {
-        await fetch(`/api/doubts/${params.id}/respond`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ responseText: aiResult.content, responseType: "text" }),
-        });
+      const res = await fetch(`/api/doubts/${params.id}/ask-ai`, { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("AI response generated!");
+      } else {
+        toast.error(data.error?.message || "AI generation failed");
       }
     } catch { /* ignore */ }
     setSending(false);
