@@ -74,7 +74,9 @@ export default function DoubtChatPage() {
     if (!doubt) return [];
     const msgs: ChatMessage[] = [];
 
-    // Original question
+    // Original question — include attached images
+    const qImages = Array.isArray(doubt.questionImages) ? doubt.questionImages as string[] : [];
+    const firstImage = qImages.find(img => typeof img === "string" && img.startsWith("/") || img.startsWith("http"));
     msgs.push({
       id: `q-${doubt.id}`,
       type: "question",
@@ -84,6 +86,8 @@ export default function DoubtChatPage() {
       text: doubt.questionText,
       isAi: false,
       isStudent: true,
+      mediaUrl: firstImage || null,
+      responseType: firstImage ? "image" : undefined,
       createdAt: doubt.createdAt,
     });
 
@@ -112,35 +116,33 @@ export default function DoubtChatPage() {
     setSending(true);
 
     let mediaUrl: string | undefined;
+    let responseType = "text";
 
     // Upload attachment if any
     if (attachFile) {
       try {
         const fd = new FormData();
         fd.append("file", attachFile);
-        // Upload via the creator content upload pattern
-        const buffer = await attachFile.arrayBuffer();
-        const key = `doubts/${params.id}/${Date.now()}-${attachFile.name.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const uploadRes = await fetch("/api/doubts/upload", { method: "POST", body: fd });
+        const uploadData = await uploadRes.json();
+        if (uploadData.success) {
+          mediaUrl = uploadData.data.url;
+          responseType = uploadData.data.mediaType;
+        }
+      } catch { /* upload failed — send text only */ }
+    }
 
-        // Use fetch to upload via a simple endpoint
-        const uploadFd = new FormData();
-        uploadFd.append("file", attachFile);
-        // For now, reference the file directly — in production use S3
-        mediaUrl = undefined; // Will be handled when we add file upload to respond API
-      } catch { /* ignore upload error */ }
+    // Build description for attachment if no text
+    let text = message;
+    if (!text.trim() && mediaUrl) {
+      const typeLabel = responseType === "image" ? "Image" : responseType === "audio" ? "Voice note" : responseType === "video" ? "Video" : "File";
+      text = `📎 ${typeLabel} attached`;
     }
 
     const res = await fetch(`/api/doubts/${params.id}/respond`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        responseText: message || (attachFile ? `[Attached: ${attachFile.name}]` : ""),
-        responseType: attachFile?.type.startsWith("image/") ? "image"
-          : attachFile?.type.startsWith("audio/") ? "audio"
-          : attachFile?.type.startsWith("video/") ? "video"
-          : "text",
-        mediaUrl,
-      }),
+      body: JSON.stringify({ responseText: text, responseType, mediaUrl }),
     });
 
     const data = await res.json();
@@ -154,6 +156,34 @@ export default function DoubtChatPage() {
     } else {
       toast.error(data.error?.message || "Failed to send");
     }
+  }
+
+  async function askAiNow() {
+    setSending(true);
+    // Trigger AI to answer this doubt
+    const questionText = doubt?.questionText || "";
+    try {
+      const res = await fetch(`/api/doubts/${params.id}/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ responseText: `[Generating AI response for: "${questionText.substring(0, 100)}..."]`, responseType: "text" }),
+      });
+      // Now trigger AI separately
+      const { aiChat, AI_MODELS } = await import("@/lib/ai/provider");
+      const aiResult = await aiChat(
+        `You are a helpful educational tutor. A student asked:\n\n"${questionText}"\n\nProvide a clear, concise answer for an Indian K-12 student. Use LaTeX for math. Under 300 words.`,
+        { model: AI_MODELS.BULK, temperature: 0.3, maxTokens: 500 }
+      );
+      if (aiResult.content) {
+        await fetch(`/api/doubts/${params.id}/respond`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ responseText: aiResult.content, responseType: "text" }),
+        });
+      }
+    } catch { /* ignore */ }
+    setSending(false);
+    fetchDoubt();
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -324,15 +354,24 @@ export default function DoubtChatPage() {
                     : "bg-muted rounded-bl-md"
                 }`}
               >
-                {/* Media preview */}
-                {msg.mediaUrl && msg.responseType === "image" && (
-                  <img src={msg.mediaUrl} alt="" className="rounded-lg max-h-48 mb-2" />
-                )}
-                {msg.mediaUrl && msg.responseType === "audio" && (
-                  <audio src={msg.mediaUrl} controls className="w-full mb-2" />
-                )}
-                {msg.mediaUrl && msg.responseType === "video" && (
-                  <video src={msg.mediaUrl} controls className="w-full rounded-lg mb-2" />
+                {/* Media preview — show for any mediaUrl */}
+                {msg.mediaUrl && (
+                  <div className="mb-2">
+                    {(msg.responseType === "image" || msg.mediaUrl.match(/\.(jpg|jpeg|png|webp|gif)$/i)) && (
+                      <img src={msg.mediaUrl} alt="" className="rounded-lg max-h-48 cursor-pointer" onClick={() => window.open(msg.mediaUrl!, "_blank")} />
+                    )}
+                    {(msg.responseType === "audio" || msg.mediaUrl.match(/\.(mp3|wav|ogg|webm|m4a)$/i)) && (
+                      <audio src={msg.mediaUrl} controls className="w-full" />
+                    )}
+                    {(msg.responseType === "video" || msg.mediaUrl.match(/\.(mp4|mov|webm)$/i)) && (
+                      <video src={msg.mediaUrl} controls className="w-full rounded-lg" />
+                    )}
+                    {msg.responseType === "document" && (
+                      <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-2 rounded bg-black/10 hover:bg-black/20">
+                        <FileText className="h-4 w-4" /><span className="text-xs underline">Open document</span>
+                      </a>
+                    )}
+                  </div>
                 )}
 
                 {/* Text content — render markdown for AI, plain for others */}
@@ -345,8 +384,13 @@ export default function DoubtChatPage() {
                 )}
               </div>
 
-              <p className={`text-[9px] text-muted-foreground mt-0.5 ${msg.isStudent ? "text-right" : "text-left"} px-1`}>
+              <p className={`text-[9px] text-muted-foreground mt-0.5 ${msg.isStudent ? "text-right" : "text-left"} px-1 flex items-center gap-1 ${msg.isStudent ? "justify-end" : ""}`}>
                 {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                {msg.type === "response" && !msg.isStudent && (
+                  <span className={`text-[8px] px-1 py-0.5 rounded ${msg.isAi ? "bg-violet-100 text-violet-600 dark:bg-violet-900/30" : "bg-blue-100 text-blue-600 dark:bg-blue-900/30"}`}>
+                    {msg.isAi ? "✨ AI" : "👨‍🏫 Teacher"}
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -372,6 +416,16 @@ export default function DoubtChatPage() {
             <p className="text-[10px] text-muted-foreground">{(attachFile.size / 1024).toFixed(0)} KB</p>
           </div>
           <Button variant="ghost" size="icon" className="h-6 w-6" onClick={removeAttachment}><X className="h-3 w-3" /></Button>
+        </div>
+      )}
+
+      {/* Ask AI button — shown when doubt is waiting for teacher but student wants AI help */}
+      {!isClosed && doubt.status === "open" && !doubt.responses.some(r => r.isAi) && (
+        <div className="px-3 py-2 border-t bg-violet-50 dark:bg-violet-950/10">
+          <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs" disabled={sending} onClick={askAiNow}>
+            {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
+            Get instant AI answer while waiting for teacher
+          </Button>
         </div>
       )}
 

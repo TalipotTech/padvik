@@ -234,13 +234,30 @@ function FloatingDoubtCTA({ contentId, classroomId, content }: { contentId: numb
     if (!question.trim() && !attachFile) return;
     setSending(true);
 
+    // Upload attachment first
+    let uploadedUrl: string | undefined;
+    if (attachFile) {
+      try {
+        const fd = new FormData();
+        fd.append("file", attachFile);
+        const upRes = await fetch("/api/doubts/upload", { method: "POST", body: fd });
+        const upData = await upRes.json();
+        if (upData.success) uploadedUrl = upData.data.url;
+      } catch { /* ignore */ }
+    }
+
+    const typeLabel = attachFile?.type.startsWith("image/") ? "Image"
+      : attachFile?.type.startsWith("audio/") ? "Voice note"
+      : attachFile?.type.startsWith("video/") ? "Video" : "File";
+
     const body: Record<string, unknown> = {
-      questionText: question || (attachFile ? `Voice note about: ${content.title}` : ""),
+      questionText: question || (uploadedUrl ? `📎 ${typeLabel} about: ${content.title}` : ""),
       contentId,
       classroomId: classroomId || undefined,
       contextType: selectedText ? "text_selection" : undefined,
       contextText: selectedText || undefined,
-      answerMode, // "ai" or "creator" — API decides whether to generate AI response
+      answerMode,
+      questionImages: uploadedUrl ? [uploadedUrl] : undefined,
     };
 
     const res = await fetch("/api/doubts", {
