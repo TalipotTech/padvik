@@ -352,7 +352,7 @@ export default function AdminSchoolsPage() {
         <Card><CardContent className="py-12 text-center text-muted-foreground">
           <School className="h-10 w-10 mx-auto mb-3" />
           <p>No schools found.</p>
-          <p className="text-xs mt-1">Click "Import Schools" above and ensure <code className="bg-muted px-1 rounded">pnpm workers</code> is running.</p>
+          <p className="text-xs mt-1">Click &quot;Import Schools&quot; above and ensure <code className="bg-muted px-1 rounded">pnpm workers</code> is running.</p>
         </CardContent></Card>
       ) : (
         <div className="space-y-2">

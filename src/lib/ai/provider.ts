@@ -18,14 +18,18 @@ import { getRedisConnection } from "@/lib/redis";
 // Models
 // ---------------------------------------------------------------------------
 export const AI_MODELS = {
-  // Anthropic — primary for complex tasks
-  PRIMARY: "claude-sonnet-4-20250514",
+  // Anthropic — primary for complex tasks (Claude Sonnet 4.6, latest)
+  PRIMARY: "claude-sonnet-4-6",
   BULK: "claude-haiku-4-5-20251001",
 
   // Google Gemini — multimodal, strong multilingual (Hindi, Tamil, Malayalam, etc.)
   GEMINI_PRO: "gemini-2.5-pro",
   GEMINI_FLASH: "gemini-2.5-flash",
   GEMINI_FLASH_LITE: "gemini-2.5-flash-lite",
+
+  // Google Gemma — strong on handwritten OCR (via Google AI Studio, same endpoint as Gemini)
+  GEMMA_3_27B: "gemma-3-27b-it",
+  GEMMA_3_12B: "gemma-3-12b-it",
 
   // Mistral — alternative complex tasks, multilingual
   MISTRAL_LARGE: "mistral-large-latest",
@@ -186,7 +190,8 @@ function resolveRoutedModel(
 
 function getProvider(model: AIModel): Provider {
   if (model.startsWith("claude-")) return "anthropic";
-  if (model.startsWith("gemini-")) return "gemini";
+  // Both Gemini and Gemma use the Google AI Studio API (same endpoint)
+  if (model.startsWith("gemini-") || model.startsWith("gemma-")) return "gemini";
   if (model.startsWith("mistral-") || model.startsWith("open-mistral") || model.startsWith("codestral")) return "mistral";
   if (model.startsWith("sonar") || model.startsWith("pplx-")) return "perplexity";
   return "openai";
@@ -195,12 +200,16 @@ function getProvider(model: AIModel): Provider {
 // Cost per 1M tokens (USD) — approximate, update as pricing changes
 const COST_PER_1M: Record<string, { input: number; output: number }> = {
   // Anthropic
+  "claude-sonnet-4-6": { input: 3.0, output: 15.0 },
   "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
   "claude-haiku-4-5-20251001": { input: 0.8, output: 4.0 },
   // Google Gemini
   "gemini-2.5-pro": { input: 1.25, output: 10.0 },
   "gemini-2.5-flash": { input: 0.3, output: 2.5 },
   "gemini-2.5-flash-lite": { input: 0.1, output: 0.4 },
+  // Google Gemma (free via AI Studio)
+  "gemma-3-27b-it": { input: 0.0, output: 0.0 },
+  "gemma-3-12b-it": { input: 0.0, output: 0.0 },
   // Mistral
   "mistral-large-latest": { input: 2.0, output: 6.0 },
   "mistral-small-latest": { input: 0.1, output: 0.3 },
@@ -730,6 +739,7 @@ export async function aiVision(
         const start = Date.now();
         const client = getGemini();
         const isProModel = tryModel.includes("-pro");
+        const isGemma = tryModel.startsWith("gemma-");
 
         const response = await client.models.generateContent({
           model: tryModel,
@@ -743,16 +753,28 @@ export async function aiVision(
             },
           ],
           config: {
-            systemInstruction: options.systemPrompt ?? undefined,
+            // Gemma doesn't support systemInstruction separately — embed in user message if needed
+            ...(isGemma ? {} : { systemInstruction: options.systemPrompt ?? undefined }),
             temperature: options.temperature ?? 0.3,
             maxOutputTokens: options.maxTokens ?? 8192,
-            ...(isProModel ? { thinkingConfig: { thinkingBudget: 4096 } } : {}),
+            // thinkingConfig is Gemini Pro only — not supported by Gemma or Flash
+            ...(isProModel && !isGemma ? { thinkingConfig: { thinkingBudget: 4096 } } : {}),
+            // responseMimeType (JSON output) not supported by Gemma
+            ...(options.jsonOutput && !isGemma ? { responseMimeType: "application/json" } : {}),
           },
         });
 
         const text = response.text ?? "";
         const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
         const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+
+        // If response is empty, treat as failure so failover kicks in
+        // (some Gemma models don't support vision — they silently return empty)
+        if (!text.trim()) {
+          throw new Error(
+            `Empty response from ${tryModel} — model may not support vision or image input`
+          );
+        }
 
         result = {
           content: text,
@@ -784,9 +806,15 @@ export async function aiVision(
     } catch (err) {
       lastError = err;
       const status = (err as { status?: number }).status;
+      const msg = (err as Error)?.message ?? "";
       const isTransient = status === 429 || status === 500 || status === 503;
-      if (isTransient || isAuthError(err) || isQuotaError(err)) {
-        console.warn(`[AI Vision] ${tryProvider}/${tryModel} failed, trying next...`);
+      // Also failover on 400/404 (model not found / invalid model) and missing keys
+      const isModelNotFound = status === 404 || status === 400 ||
+        /not found|does not exist|invalid model|unsupported/i.test(msg);
+      // Failover on empty responses (some models don't support vision)
+      const isEmptyResponse = /empty response|may not support vision/i.test(msg);
+      if (isTransient || isModelNotFound || isEmptyResponse || isAuthError(err) || isQuotaError(err)) {
+        console.warn(`[AI Vision] ${tryProvider}/${tryModel} failed (${status ?? "?"}: ${msg.substring(0, 100)}), trying next...`);
         continue;
       }
       throw err;

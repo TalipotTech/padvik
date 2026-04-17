@@ -106,6 +106,7 @@ export default function ContentUploadPage() {
   const [uploading, setUploading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [handwritten, setHandwritten] = useState(false);
+  const [ocrModel, setOcrModel] = useState("gemini-2.5-pro");
   const [form, setForm] = useState({
     title: "", description: "", body: "", language: "en", isPremium: false,
   });
@@ -144,6 +145,7 @@ export default function ContentUploadPage() {
     fd.append("language", form.language);
     fd.append("isPremium", String(form.isPremium));
     if (handwritten) fd.append("handwritten", "true");
+    if (handwritten) fd.append("ocrModel", ocrModel);
     if (curriculum.boardId) fd.append("boardId", curriculum.boardId);
     if (curriculum.standardId) fd.append("standardId", curriculum.standardId);
     if (curriculum.subjectId) fd.append("subjectId", curriculum.subjectId);
@@ -245,21 +247,49 @@ export default function ContentUploadPage() {
 
             {/* Handwritten toggle — only show if images are selected */}
             {hasImages && (
-              <label className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/30 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={handwritten}
-                  onChange={(e) => setHandwritten(e.target.checked)}
-                  className="rounded"
-                />
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-4 w-4 text-violet-500" />
-                  <div>
-                    <p className="text-sm font-medium">Extract text from images (AI OCR)</p>
-                    <p className="text-xs text-muted-foreground">For handwritten notes — supports English, Hindi, Malayalam, Tamil, Telugu, Kannada</p>
+              <div className="space-y-2">
+                <label className="flex items-center gap-3 rounded-lg border p-3 cursor-pointer hover:bg-muted/30 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={handwritten}
+                    onChange={(e) => setHandwritten(e.target.checked)}
+                    className="rounded"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-violet-500" />
+                    <div>
+                      <p className="text-sm font-medium">Extract text from images (AI OCR)</p>
+                      <p className="text-xs text-muted-foreground">For handwritten notes — supports English, Hindi, Malayalam, Tamil, Telugu, Kannada</p>
+                    </div>
                   </div>
-                </div>
-              </label>
+                </label>
+
+                {/* OCR Model selector — only shown when handwritten is enabled */}
+                {handwritten && (
+                  <div className="rounded-lg border p-3 space-y-2 bg-muted/20">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1">
+                        <Label className="text-sm font-medium">OCR Model</Label>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Gemini 2.5 Pro recommended for handwriting. Will auto-failover if the selected model fails.
+                        </p>
+                      </div>
+                      <Select value={ocrModel} onValueChange={setOcrModel}>
+                        <SelectTrigger className="w-[260px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="gemini-2.5-pro">Gemini 2.5 Pro (best for vision)</SelectItem>
+                          <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash (fast)</SelectItem>
+                          <SelectItem value="claude-sonnet-4-6">Claude Sonnet 4.6 (Anthropic)</SelectItem>
+                          <SelectItem value="gemma-3-27b-it">Gemma 3 27B (may not support vision)</SelectItem>
+                          <SelectItem value="gemma-3-12b-it">Gemma 3 12B (may not support vision)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

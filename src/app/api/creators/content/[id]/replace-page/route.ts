@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { checkCreator } from "@/lib/check-creator";
 import { aiVision } from "@/lib/ai/provider";
+import { buildOcrPrompt, parseOcrBlocks, blocksToMarkdown, blocksToPlainText } from "@/lib/content-pipeline/ocr-blocks";
 
 // ---------------------------------------------------------------------------
 // POST /api/creators/content/[id]/replace-page
@@ -92,23 +93,28 @@ export async function POST(
       metadata: { contentId, pageIndex, originalName: file.name },
     }).returning();
 
-    // Run OCR on the new image
+    // Run structured OCR on the new image
     let extractedText = "";
+    let extractedMarkdown = "";
     let aiModel = "";
     let aiCost = 0;
     try {
       const base64 = buffer.toString("base64");
       const mediaType = file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
       const langNames: Record<string, string> = { hi: "Hindi", ml: "Malayalam", ta: "Tamil", te: "Telugu", kn: "Kannada", mr: "Marathi" };
-      const langHint = langNames[language] ? ` The handwriting is likely in ${langNames[language]}.` : "";
+      const langHint = langNames[language] || undefined;
 
+      const ocrPrompt = buildOcrPrompt(langHint);
       const result = await aiVision(
-        `Extract all text from this handwritten note (page ${pageIndex + 1}). Preserve formatting, headings, and math formulas (LaTeX). Describe diagrams briefly. Use Markdown.${langHint}`,
+        ocrPrompt,
         base64,
         mediaType,
-        { temperature: 0.1, maxTokens: 4096, language }
+        { temperature: 0, maxTokens: 8192, language }
       );
-      extractedText = result.content;
+
+      const blocks = parseOcrBlocks(result.content);
+      extractedText = blocksToPlainText(blocks);
+      extractedMarkdown = blocksToMarkdown(blocks);
       aiModel = result.model;
       aiCost = result.costUsd;
 
@@ -117,6 +123,7 @@ export async function POST(
         .where(eq(fileUploads.id, upload.id));
     } catch {
       extractedText = `[OCR failed for replacement page ${pageIndex + 1}]`;
+      extractedMarkdown = extractedText;
       await db.update(fileUploads)
         .set({ processingStatus: "failed" })
         .where(eq(fileUploads.id, upload.id));
@@ -138,7 +145,7 @@ export async function POST(
     const pageSections = body.split(/\n---\n/).map(s => s.trim()).filter(Boolean);
 
     // Build the replacement page section
-    const newPageSection = `## Page ${pageIndex + 1}\n\n![Page ${pageIndex + 1}](${newImageUrl})\n\n${extractedText}`;
+    const newPageSection = `## Page ${pageIndex + 1}\n\n![Page ${pageIndex + 1}](${newImageUrl})\n\n${extractedMarkdown}`;
 
     // Replace or pad
     while (pageSections.length <= pageIndex) {

@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { checkCreator } from "@/lib/check-creator";
 import { aiVision } from "@/lib/ai/provider";
+import { buildOcrPrompt, parseOcrBlocks, blocksToMarkdown, blocksToPlainText } from "@/lib/content-pipeline/ocr-blocks";
 
 // ---------------------------------------------------------------------------
 // POST /api/creators/content/upload-handwritten
@@ -127,24 +128,27 @@ export async function POST(request: NextRequest) {
         const base64 = buffer.toString("base64");
         const mediaType = file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 
-        const langHint = language !== "en"
-          ? ` The handwriting is likely in ${getLanguageName(language)}. Extract in that language, transliterating if needed.`
-          : "";
+        const langName = language !== "en" ? getLanguageName(language) : undefined;
+        const ocrPrompt = buildOcrPrompt(langName);
 
         const result = await aiVision(
-          `Extract all text from this handwritten note (page ${i + 1} of ${files.length}). Preserve the formatting, paragraphs, headings, and any mathematical formulas (use LaTeX notation). If there are diagrams, describe them briefly. Output in the same language as the handwriting. Use Markdown format.${langHint}`,
+          ocrPrompt,
           base64,
           mediaType,
-          { temperature: 0.1, maxTokens: 4096, language }
+          { temperature: 0, maxTokens: 8192, language }
         );
 
-        extractedParts.push(result.content);
+        const blocks = parseOcrBlocks(result.content);
+        const markdown = blocksToMarkdown(blocks);
+        const plainText = blocksToPlainText(blocks);
+
+        extractedParts.push(markdown);
         totalAiCost += result.costUsd;
         aiModel = result.model;
 
-        // Update fileUploads
+        // Update fileUploads with plain text for search
         await db.update(fileUploads)
-          .set({ processingStatus: "completed", extractedText: result.content })
+          .set({ processingStatus: "completed", extractedText: plainText })
           .where(eq(fileUploads.id, upload.id));
       } catch (ocrErr) {
         extractedParts.push(`[OCR failed for page ${i + 1} — image saved]`);

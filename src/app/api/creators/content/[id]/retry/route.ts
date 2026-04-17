@@ -12,8 +12,15 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   const contentId = Number(id);
 
-  const [content] = await db.select({ creatorId: creatorContent.creatorId, uploadStatus: creatorContent.uploadStatus })
-    .from(creatorContent).where(eq(creatorContent.id, contentId)).limit(1);
+  const [content] = await db
+    .select({
+      creatorId: creatorContent.creatorId,
+      uploadStatus: creatorContent.uploadStatus,
+      metadata: creatorContent.metadata,
+    })
+    .from(creatorContent)
+    .where(eq(creatorContent.id, contentId))
+    .limit(1);
 
   if (!content || content.creatorId !== creator.userId) {
     return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Content not found" } }, { status: 404 });
@@ -23,8 +30,16 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ success: false, error: { code: "INVALID_STATE", message: "Only failed content can be retried" } }, { status: 400 });
   }
 
+  // Clear pipeline error but keep completed stages so we resume from the failed stage
+  const metadata = (content.metadata as Record<string, unknown>) ?? {};
+  delete metadata.pipelineError;
+
   // Reset status and re-queue processing
-  await db.update(creatorContent).set({ uploadStatus: "processing", updatedAt: new Date() }).where(eq(creatorContent.id, contentId));
+  await db.update(creatorContent).set({
+    uploadStatus: "processing",
+    metadata,
+    updatedAt: new Date(),
+  }).where(eq(creatorContent.id, contentId));
 
   try {
     const { addCreatorContentJob } = await import("@/lib/queue/index");

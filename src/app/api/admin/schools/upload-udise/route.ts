@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import { importProgress } from "../route";
+import { importProgress } from "@/lib/schools/import-progress";
 
 export const maxDuration = 300;
 

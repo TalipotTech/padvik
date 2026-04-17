@@ -33,6 +33,8 @@ import { useBoardSelection } from "@/hooks/use-board-selection";
 import { useData } from "@/hooks/use-data";
 import { getSubjects } from "@/lib/data";
 import { DashboardNotifications } from "@/components/notifications/DashboardNotifications";
+import { markClassroomsSeen } from "@/components/classrooms/new-content-badge";
+import { ContentCard, type ContentCardProps } from "@/components/content/content-card";
 
 interface DashboardHomeProps {
   userName: string;
@@ -125,6 +127,66 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       })
       .catch(() => {});
   }, [boardId, grade]);
+
+  // Fetch classroom feed for students
+  interface ClassroomFeedItem {
+    id: number;
+    name: string;
+    teacherName: string | null;
+    teacherAvatar: string | null;
+    content: Array<{
+      id: number;
+      title: string;
+      contentType: string;
+      thumbnailUrl: string | null;
+      aiSummary: string | null;
+      createdAt: string;
+    }>;
+  }
+  const [classroomFeed, setClassroomFeed] = useState<ClassroomFeedItem[]>([]);
+  const [classroomFeedLoading, setClassroomFeedLoading] = useState(false);
+  useEffect(() => {
+    if (userRole !== "student") return;
+    setClassroomFeedLoading(true);
+    fetch("/api/my/classroom-feed")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success) setClassroomFeed(json.data.classrooms ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setClassroomFeedLoading(false));
+  }, [userRole]);
+
+  // Fetch trending content for students (discover section)
+  const [discoverContent, setDiscoverContent] = useState<ContentCardProps[]>([]);
+  useEffect(() => {
+    if (userRole !== "student") return;
+    const params = boardId ? `?boardId=${boardId}&limit=6` : "?limit=6";
+    fetch(`/api/content/featured${params}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success) {
+          setDiscoverContent(
+            (json.data.items ?? []).map((c: Record<string, unknown>) => ({
+              id: c.id as number,
+              title: c.title as string,
+              contentType: c.contentType as string,
+              thumbnailUrl: c.thumbnailUrl as string | null,
+              durationSeconds: c.durationSeconds as number | null,
+              isPremium: c.isPremium as boolean,
+              viewCount: Number(c.viewCount ?? 0),
+              likeCount: Number(c.likeCount ?? 0),
+              publishedAt: c.publishedAt as string,
+              creatorName: c.creatorName as string,
+              creatorAvatar: c.creatorAvatar as string | null,
+              creatorVerified: c.creatorVerified as boolean,
+              creatorId: c.creatorId as number,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, [userRole, boardId]);
 
   return (
     <div className="space-y-6 pt-2">
@@ -219,6 +281,92 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
                   </CardContent>
                 </Card>
               </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* My Classrooms — for students */}
+      {userRole === "student" && !classroomFeedLoading && classroomFeed.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Users className="h-4 w-4 text-violet-600" />
+              My Classrooms
+            </h2>
+            <Link href="/dashboard/classroom" className="text-xs text-violet-600 hover:underline">
+              View all
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {classroomFeed.slice(0, 3).map((cr) => (
+              <Link key={cr.id} href={`/dashboard/classroom/${cr.id}`}>
+                <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-100 dark:bg-violet-900/30">
+                        <Users className="h-4 w-4 text-violet-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate">{cr.name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">by {cr.teacherName || "Teacher"}</p>
+                      </div>
+                    </div>
+                    {cr.content.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {cr.content.slice(0, 2).map((item) => (
+                          <div key={item.id} className="flex items-center gap-2 text-xs">
+                            <ContentTypeIcon type={item.contentType} />
+                            <span className="truncate flex-1">{item.title}</span>
+                            <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(item.createdAt)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground italic">No recent content</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Join a classroom CTA — for students with no classrooms */}
+      {userRole === "student" && !classroomFeedLoading && classroomFeed.length === 0 && (
+        <Card className="border-dashed border-violet-200 dark:border-violet-800">
+          <CardContent className="flex items-center gap-4 p-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-900/30">
+              <Users className="h-5 w-5 text-violet-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium">Join a classroom</p>
+              <p className="text-xs text-muted-foreground">Get content from your teachers and tutors</p>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/dashboard/classroom">Join</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Discover Content — for students */}
+      {userRole === "student" && discoverContent.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-600" />
+              Discover Content
+              {boardName && <span className="text-[10px] font-normal text-muted-foreground">for {boardName}</span>}
+            </h2>
+            <Link href={boardId ? `/dashboard/explore?boardId=${boardId}` : "/dashboard/explore"} className="text-xs text-violet-600 hover:underline">
+              Browse all
+            </Link>
+          </div>
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
+            {discoverContent.slice(0, 6).map((item) => (
+              <ContentCard key={item.id} {...item} href={`/dashboard/content/${item.id}`} />
             ))}
           </div>
         </div>
@@ -376,6 +524,33 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       <BoardPicker open={pickerOpen} onOpenChange={setPickerOpen} />
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Content type icon for classroom feed
+// ---------------------------------------------------------------------------
+
+function ContentTypeIcon({ type }: { type: string }) {
+  const cls = "h-3.5 w-3.5 shrink-0";
+  switch (type) {
+    case "video": return <Play className={`${cls} text-blue-500`} />;
+    case "audio": return <Activity className={`${cls} text-green-500`} />;
+    case "image": return <Sparkles className={`${cls} text-amber-500`} />;
+    case "document": return <FileText className={`${cls} text-red-500`} />;
+    default: return <BookOpen className={`${cls} text-violet-500`} />;
+  }
+}
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d`;
+  return `${Math.floor(days / 7)}w`;
 }
 
 // ---------------------------------------------------------------------------

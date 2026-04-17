@@ -4,17 +4,7 @@ import { db } from "@/db";
 import { schools } from "@/db/schema/schools";
 import { sql } from "drizzle-orm";
 
-// In-memory progress tracking (shared across requests in same process)
-export const importProgress: Record<string, {
-  running: boolean;
-  source: string;
-  startedAt: number;
-  message: string;
-  inserted: number;
-  updated: number;
-  errors: number;
-  durationMs?: number;
-}> = {};
+import { importProgress } from "@/lib/schools/import-progress";
 
 /**
  * POST /api/admin/schools/import — Run school import directly

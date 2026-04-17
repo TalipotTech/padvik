@@ -12,6 +12,8 @@ export interface MediaItem {
   mimeType: string;
   order: number;
   extractedText?: string;
+  /** Structured OCR blocks (tables, formulas, diagrams) — set by structured OCR */
+  extractedBlocks?: import("@/lib/content-pipeline/ocr-blocks").OcrBlock[];
   duration?: number;
 }
 

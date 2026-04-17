@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Users, BookOpen, Loader2, LogIn, Mail, CheckCircle, X } from "lucide-react";
 import { toast } from "sonner";
+import { markClassroomsSeen } from "@/components/classrooms/new-content-badge";
 
 interface Classroom {
   id: number; name: string; description: string | null; studentCount: number;
@@ -32,7 +33,7 @@ export default function StudentClassroomPage() {
   const [joining, setJoining] = useState(false);
   const [acceptingToken, setAcceptingToken] = useState<string | null>(null);
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchAll(); markClassroomsSeen(); }, []);
 
   async function fetchAll() {
     const [crRes, invRes] = await Promise.all([

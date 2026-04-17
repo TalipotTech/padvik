@@ -49,6 +49,7 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { NewContentBadge } from "@/components/classrooms/new-content-badge";
 
 interface NavItem {
   href: string;
@@ -133,11 +134,13 @@ function NavLink({
   collapsed,
   pathname,
   isCreator,
+  userRole,
 }: {
   item: NavItem;
   collapsed: boolean;
   pathname: string;
   isCreator?: boolean;
+  userRole?: string;
 }) {
   // Resolve dynamic hrefs — creator override, then playground
   const baseHref = (isCreator && item.creatorHref) ? item.creatorHref : item.href;
@@ -152,6 +155,12 @@ function NavLink({
           ? pathname === "/dashboard" || pathname === "/dashboard/creator"
           : pathname.startsWith(item.href);
 
+  // Show new content indicator dot on Classrooms for students
+  const showContentDot =
+    item.href === "/dashboard/classroom" &&
+    !item.requiresCreator &&
+    userRole === "student";
+
   const link = (
     <Link
       href={resolvedHref}
@@ -164,7 +173,12 @@ function NavLink({
       )}
     >
       <item.icon className="h-5 w-5 shrink-0" />
-      {!collapsed && <span>{item.label}</span>}
+      {!collapsed && (
+        <span className="flex items-center gap-1.5">
+          {item.label}
+          {showContentDot && <NewContentBadge variant="dot" />}
+        </span>
+      )}
     </Link>
   );
 
@@ -241,7 +255,7 @@ function SidebarContent({
                     {collapsed ? item.section!.charAt(0) : item.section}
                   </div>
                 )}
-                <NavLink item={item} collapsed={collapsed} pathname={pathname} isCreator={user.isCreator} />
+                <NavLink item={item} collapsed={collapsed} pathname={pathname} isCreator={user.isCreator} userRole={role} />
               </div>
             );
           })}

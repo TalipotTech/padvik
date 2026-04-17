@@ -215,3 +215,17 @@ body {
   color: hsl(var(--foreground));
   font-feature-settings: "rlig" 1, "calt" 1;
 }
+
+/* Dashboard layout uses h-screen with its own scroll container (<main>).
+   Prevent html/body from showing a second scrollbar alongside <main>'s. */
+body:has([data-dashboard-layout]) {
+  overflow: hidden;
+}
+
+/* KaTeX: prevent duplicate text on copy-paste.
+   KaTeX renders both .katex-html (visual) and .katex-mathml (hidden MathML).
+   Browsers copy both, causing each formula to appear twice in clipboard.
+   Fix: exclude the hidden MathML from text selection. */
+.katex .katex-mathml {
+  user-select: none;
+}

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { MobileSidebar } from "@/components/layout/sidebar";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { DoubtBadge } from "@/components/doubts/doubt-badge";
+import { NewContentBadge } from "@/components/classrooms/new-content-badge";
 import { Sparkles } from "lucide-react";
 import Link from "next/link";
 
@@ -49,6 +50,12 @@ export function Header({ user, signOutAction }: HeaderProps) {
 
       {/* Right side */}
       <div className="flex items-center gap-2">
+        {/* New classroom content badge — students only */}
+        {!user.isCreator && user.role !== "admin" && (
+          <Link href="/dashboard/classroom" className="hover:opacity-80" title="Classrooms">
+            <NewContentBadge variant="icon" />
+          </Link>
+        )}
         <Link href={user.isCreator ? "/dashboard/creator/doubts" : "/dashboard/doubts"} className="hover:opacity-80">
           <DoubtBadge />
         </Link>

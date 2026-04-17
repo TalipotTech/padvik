@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { checkCreator } from "@/lib/check-creator";
 import { aiVision } from "@/lib/ai/provider";
+import { buildOcrPrompt, parseOcrBlocks, blocksToMarkdown, blocksToPlainText } from "@/lib/content-pipeline/ocr-blocks";
 import {
   type MediaItem,
   validateFile,
@@ -125,25 +126,28 @@ export async function POST(
         order: maxOrder + 1 + i,
       };
 
-      // OCR for images if handwritten
+      // Structured OCR for images if handwritten
       if (handwritten && mediaType === "image") {
         try {
           const base64 = buffer.toString("base64");
           const mt = file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
           const langNames: Record<string, string> = { hi: "Hindi", ml: "Malayalam", ta: "Tamil", te: "Telugu", kn: "Kannada" };
-          const hint = langNames[language] ? ` The handwriting is likely in ${langNames[language]}.` : "";
+          const langHint = langNames[language] || undefined;
 
-          const result = await aiVision(
-            `Extract all text from this handwritten note. Preserve formatting, headings, math formulas (LaTeX). Describe diagrams briefly. Markdown format.${hint}`,
-            base64, mt,
-            { temperature: 0.1, maxTokens: 4096, language }
-          );
-          item.extractedText = result.content;
+          const ocrPrompt = buildOcrPrompt(langHint);
+          const result = await aiVision(ocrPrompt, base64, mt, { temperature: 0, maxTokens: 8192, language });
+
+          const blocks = parseOcrBlocks(result.content);
+          const markdown = blocksToMarkdown(blocks);
+          const plainText = blocksToPlainText(blocks);
+
+          item.extractedText = markdown; // markdown for rendering
+          item.extractedBlocks = blocks; // structured blocks for RichContentViewer
           totalOcrCost += result.costUsd;
-          ocrTexts.push(result.content);
+          ocrTexts.push(markdown);
 
           await db.update(fileUploads)
-            .set({ processingStatus: "completed", extractedText: result.content })
+            .set({ processingStatus: "completed", extractedText: plainText })
             .where(eq(fileUploads.id, upload.id));
         } catch {
           item.extractedText = "[OCR failed]";

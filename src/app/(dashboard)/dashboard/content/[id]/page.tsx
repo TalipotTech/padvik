@@ -7,11 +7,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
+import { OcrBlockRenderer } from "@/components/content/ocr-block-renderer";
+import { ImageLightbox } from "@/components/content/image-lightbox";
+import { type OcrBlock } from "@/lib/content-pipeline/ocr-blocks";
 import { useViewTracking } from "@/hooks/use-view-tracking";
 import {
   Loader2, ArrowLeft, Eye, FileText, FileVideo, FileAudio,
   Image as ImageIcon, BookOpen, Download, HelpCircle, Send, X,
-  Paperclip, Camera, Mic, Square, Sparkles, MessageCircle,
+  Paperclip, Camera, Mic, Square, Sparkles, MessageCircle, ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -23,6 +26,7 @@ interface ContentDetail {
   boardName: string | null; subjectName: string | null;
   chapterTitle: string | null; topicTitle: string | null;
   createdAt: string;
+  metadata?: Record<string, unknown> | null;
 }
 
 function ContentTypeIcon({ type, className }: { type: string; className?: string }) {
@@ -41,6 +45,7 @@ export default function StudentContentViewPage() {
   const classroomId = searchParams.get("classroom") ? Number(searchParams.get("classroom")) : undefined;
   const [content, setContent] = useState<ContentDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // View tracking with 30s heartbeat for video/audio
   const { onPlay, onPause, onTimeUpdate, onEnded } = useViewTracking(
@@ -125,10 +130,48 @@ export default function StudentContentViewPage() {
       )}
 
       {content.contentType === "image" && content.mediaUrl && (
-        <div className="rounded-lg border overflow-hidden flex justify-center bg-muted/10 p-4">
+        <div
+          className="rounded-lg border overflow-hidden flex justify-center bg-muted/10 p-4 cursor-pointer group relative"
+          onClick={() => setLightboxIndex(0)}
+        >
           <img src={content.mediaUrl} alt={content.title} className="max-h-[600px] rounded object-contain" />
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded">
+            <ZoomIn className="h-10 w-10 text-white drop-shadow-lg" />
+          </div>
         </div>
       )}
+
+      {/* Handwritten notes: show all source images (stored in metadata.mediaItems) */}
+      {content.contentType !== "image" && (() => {
+        const meta = (content.metadata as Record<string, unknown> | null) ?? {};
+        const mediaItems = (meta.mediaItems as Array<{ type: string; url: string; fileName?: string }> | undefined) ?? [];
+        const images = mediaItems.filter((m) => m.type === "image");
+        if (images.length === 0) return null;
+        return (
+          <div className="space-y-3">
+            {images.length > 1 && <p className="text-xs font-medium text-muted-foreground">Source images ({images.length})</p>}
+            <div className={images.length === 1 ? "rounded-lg border overflow-hidden flex justify-center bg-muted/10 p-4" : "grid gap-3 sm:grid-cols-2"}>
+              {images.map((img, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg border overflow-hidden flex justify-center bg-muted/10 p-3 cursor-pointer group relative"
+                  onClick={() => setLightboxIndex(i)}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={img.url}
+                    alt={img.fileName || `Page ${i + 1}`}
+                    className="max-h-[500px] rounded object-contain"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded">
+                    <ZoomIn className="h-10 w-10 text-white drop-shadow-lg" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {content.contentType === "document" && content.mediaUrl && (
         <Card>
@@ -142,14 +185,33 @@ export default function StudentContentViewPage() {
         </Card>
       )}
 
-      {/* Text/Note body */}
-      {content.body && (
-        <Card>
-          <CardContent className="py-6">
-            <MarkdownRenderer content={content.body} />
-          </CardContent>
-        </Card>
-      )}
+      {/* Text/Note body — prefer structured OCR blocks when available for cleaner rendering */}
+      {(() => {
+        const meta = (content.metadata as Record<string, unknown> | null) ?? {};
+        const ocrBlockGroups = meta.ocrBlocks as OcrBlock[][] | undefined;
+        // Flatten per-image block arrays into a single list
+        const allBlocks = ocrBlockGroups?.flat() as OcrBlock[] | undefined;
+
+        if (allBlocks && allBlocks.length > 0) {
+          return (
+            <Card>
+              <CardContent className="py-6">
+                <OcrBlockRenderer blocks={allBlocks} />
+              </CardContent>
+            </Card>
+          );
+        }
+        if (content.body) {
+          return (
+            <Card>
+              <CardContent className="py-6">
+                <MarkdownRenderer content={content.body} />
+              </CardContent>
+            </Card>
+          );
+        }
+        return null;
+      })()}
 
       {/* Tags */}
       {content.aiTags && content.aiTags.length > 0 && (
@@ -162,6 +224,23 @@ export default function StudentContentViewPage() {
 
       {/* Floating Ask Doubt CTA */}
       <FloatingDoubtCTA contentId={Number(params.id)} classroomId={classroomId} content={content} />
+
+      {/* Fullscreen image lightbox */}
+      {lightboxIndex !== null && (() => {
+        const meta = (content.metadata as Record<string, unknown> | null) ?? {};
+        const mediaItems = (meta.mediaItems as Array<{ type: string; url: string }> | undefined) ?? [];
+        const images = mediaItems.filter((m) => m.type === "image").map((m) => m.url);
+        // Fall back to content.mediaUrl for single-image content
+        const urls = images.length > 0 ? images : (content.mediaUrl ? [content.mediaUrl] : []);
+        if (urls.length === 0) return null;
+        return (
+          <ImageLightbox
+            images={urls}
+            initialIndex={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

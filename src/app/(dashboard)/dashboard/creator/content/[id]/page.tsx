@@ -16,6 +16,9 @@ import {
 import { toast } from "sonner";
 import Link from "next/link";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
+import { OcrBlockRenderer } from "@/components/content/ocr-block-renderer";
+import { ImageLightbox } from "@/components/content/image-lightbox";
+import { blocksToMarkdown, type OcrBlock } from "@/lib/content-pipeline/ocr-blocks";
 
 // ── Types ──
 interface MediaItem {
@@ -27,6 +30,7 @@ interface MediaItem {
   mimeType: string;
   order: number;
   extractedText?: string;
+  extractedBlocks?: OcrBlock[];
   duration?: number;
 }
 
@@ -58,24 +62,6 @@ function formatSize(bytes: number): string {
   if (!bytes) return "";
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-// ── Lightbox ──
-function Lightbox({ images, initialIndex, onClose }: { images: string[]; initialIndex: number; onClose: () => void }) {
-  const [index, setIndex] = useState(initialIndex);
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); if (e.key === "ArrowRight" && index < images.length - 1) setIndex(i => i + 1); if (e.key === "ArrowLeft" && index > 0) setIndex(i => i - 1); };
-    window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h);
-  }, [index, images.length, onClose]);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90" onClick={onClose}>
-      <button onClick={onClose} className="absolute top-4 right-4 text-white/80 hover:text-white z-10"><X className="h-8 w-8" /></button>
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/80 text-sm z-10">{index + 1} / {images.length}</div>
-      {index > 0 && <button onClick={e => { e.stopPropagation(); setIndex(i => i - 1); }} className="absolute left-4 text-white/70 hover:text-white z-10"><ChevronLeft className="h-10 w-10" /></button>}
-      <img src={images[index]} alt="" className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg" onClick={e => e.stopPropagation()} />
-      {index < images.length - 1 && <button onClick={e => { e.stopPropagation(); setIndex(i => i + 1); }} className="absolute right-4 text-white/70 hover:text-white z-10"><ChevronRight className="h-10 w-10" /></button>}
-    </div>
-  );
 }
 
 // ── Preview: render mediaItems sequentially ──
@@ -174,7 +160,13 @@ function MediaPreview({ items, body, isHandwritten, onOpenLightbox }: {
                     <img src={item.url} alt="" className="max-h-[350px] rounded border object-contain" />
                     <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded"><ZoomIn className="h-8 w-8 text-white drop-shadow-lg" /></div>
                   </div>
-                  <div className="p-4"><MarkdownRenderer content={item.extractedText} /></div>
+                  <div className="p-4">
+                    {item.extractedBlocks ? (
+                      <OcrBlockRenderer blocks={item.extractedBlocks} />
+                    ) : (
+                      <MarkdownRenderer content={item.extractedText} />
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="p-4 flex justify-center cursor-pointer" onClick={() => onOpenLightbox(imageItems.indexOf(item))}>
@@ -246,28 +238,35 @@ function MediaItemEditor({ item, contentId, onRemove, onReplace }: {
 }
 
 // ── Edit: Image + OCR text side-by-side editor ──
-function ImageOcrEditor({ item, onRemove, onReplace, onTextChange, onOpenLightbox }: {
+function ImageOcrEditor({ item, onRemove, onReplace, onTextChange, onOpenLightbox, replacing }: {
   item: MediaItem;
   onRemove: () => void;
   onReplace: (file: File) => void;
   onTextChange: (text: string) => void;
   onOpenLightbox: () => void;
+  replacing?: boolean;
 }) {
   const replaceRef = useRef<HTMLInputElement>(null);
-  const [editMode, setEditMode] = useState<"visual" | "markdown">("visual");
+  const [editMode, setEditMode] = useState<"visual" | "markdown" | "raw">("visual");
   const text = item.extractedText || "";
 
   return (
-    <div className="rounded-lg border overflow-hidden">
+    <div className={`rounded-lg border overflow-hidden transition-opacity ${replacing ? "opacity-60 pointer-events-none" : ""}`}>
       {/* Header */}
       <div className="bg-muted/30 px-3 py-2 border-b flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <ImageIcon className="h-3.5 w-3.5 text-amber-500" />
-          <span className="text-xs font-medium truncate max-w-[200px]">{item.fileName}</span>
-          {item.extractedText && <Badge variant="secondary" className="text-[9px] py-0 h-4">OCR</Badge>}
+          {replacing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-500" />
+          ) : (
+            <ImageIcon className="h-3.5 w-3.5 text-amber-500" />
+          )}
+          <span className="text-xs font-medium truncate max-w-[200px]">
+            {replacing ? "Replacing & re-processing OCR..." : item.fileName}
+          </span>
+          {!replacing && item.extractedText && <Badge variant="secondary" className="text-[9px] py-0 h-4">OCR</Badge>}
         </div>
         <div className="flex items-center gap-1">
-          {item.extractedText && (
+          {item.extractedText && !replacing && (
             <>
               <Button type="button" variant={editMode === "visual" ? "secondary" : "ghost"} size="sm" className="h-6 text-[10px] px-2" onClick={() => setEditMode("visual")}>
                 Visual
@@ -275,17 +274,30 @@ function ImageOcrEditor({ item, onRemove, onReplace, onTextChange, onOpenLightbo
               <Button type="button" variant={editMode === "markdown" ? "secondary" : "ghost"} size="sm" className="h-6 text-[10px] px-2" onClick={() => setEditMode("markdown")}>
                 Markdown
               </Button>
+              {item.extractedBlocks && (
+                <Button type="button" variant={editMode === "raw" ? "secondary" : "ghost"} size="sm" className="h-6 text-[10px] px-2" onClick={() => setEditMode("raw")}>
+                  Raw
+                </Button>
+              )}
             </>
           )}
           <input ref={replaceRef} type="file" className="hidden" accept="image/*" onChange={e => { if (e.target.files?.[0]) onReplace(e.target.files[0]); }} />
-          <Button type="button" variant="ghost" size="icon" className="h-6 w-6" title="Replace image" onClick={() => replaceRef.current?.click()}>
-            <RefreshCw className="h-3 w-3" />
+          <Button type="button" variant="ghost" size="icon" className="h-6 w-6" title="Replace image" onClick={() => replaceRef.current?.click()} disabled={replacing}>
+            {replacing ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           </Button>
-          <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" title="Remove" onClick={onRemove}>
+          <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" title="Remove" onClick={onRemove} disabled={replacing}>
             <Trash2 className="h-3 w-3" />
           </Button>
         </div>
       </div>
+
+      {/* Replacing progress bar */}
+      {replacing && (
+        <div className="h-1 bg-muted overflow-hidden">
+          <div className="h-full bg-violet-500 animate-pulse" style={{ width: "100%" }} />
+        </div>
+      )}
+
       {/* Content: image left + text right */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
         {/* Left: Image */}
@@ -297,37 +309,31 @@ function ImageOcrEditor({ item, onRemove, onReplace, onTextChange, onOpenLightbo
             </div>
           </div>
         </div>
-        {/* Right: Editable text */}
+        {/* Right: Extracted text */}
         <div className="p-3 flex flex-col">
           {item.extractedText ? (
             editMode === "visual" ? (
-              <div
-                contentEditable
-                suppressContentEditableWarning
-                className="flex-1 min-h-[200px] rounded-md border border-transparent px-3 py-2 text-sm focus:border-input focus:ring-2 focus:ring-ring focus:outline-none hover:border-muted-foreground/30 transition-colors overflow-y-auto prose prose-sm max-w-none"
-                onBlur={(e) => onTextChange(e.currentTarget.innerText || "")}
-                dangerouslySetInnerHTML={{
-                  __html: text
-                    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-                    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-                    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-                    .replace(/^### (.+)$/gm, '<h4 class="text-sm font-semibold mt-3 mb-1">$1</h4>')
-                    .replace(/^## (.+)$/gm, '<h3 class="text-base font-semibold mt-4 mb-1">$1</h3>')
-                    .replace(/^# (.+)$/gm, '<h2 class="text-lg font-bold mt-4 mb-2">$1</h2>')
-                    .replace(/^- (.+)$/gm, '<div class="flex gap-2 ml-2"><span class="text-violet-500 mt-1.5">•</span><span>$1</span></div>')
-                    .replace(/\n/g, "<br/>"),
-                }}
-              />
+              <div className="flex-1 min-h-[200px] overflow-y-auto rounded-md border border-transparent px-2 py-2">
+                {item.extractedBlocks ? (
+                  <OcrBlockRenderer blocks={item.extractedBlocks} />
+                ) : (
+                  <MarkdownRenderer content={text} />
+                )}
+              </div>
+            ) : editMode === "raw" && item.extractedBlocks ? (
+              <pre className="flex-1 min-h-[200px] w-full rounded-md border border-input bg-muted/30 px-3 py-2 text-[11px] font-mono overflow-auto whitespace-pre-wrap">
+                {JSON.stringify(item.extractedBlocks, null, 2)}
+              </pre>
             ) : (
               <textarea
                 className="flex-1 min-h-[200px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y"
-                value={text}
+                value={item.extractedBlocks ? blocksToMarkdown(item.extractedBlocks) : text}
                 onChange={(e) => onTextChange(e.target.value)}
               />
             )
           ) : (
             <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground italic">
-              No text extracted
+              {replacing ? "Processing OCR..." : "No text extracted"}
             </div>
           )}
         </div>
@@ -350,6 +356,7 @@ export default function ContentDetailPage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const addFilesRef = useRef<HTMLInputElement>(null);
   const [addingFiles, setAddingFiles] = useState(false);
+  const [replacingOrder, setReplacingOrder] = useState<number | null>(null);
 
   const meta = (content?.metadata as Record<string, unknown>) || {};
   const mediaItems: MediaItem[] = content?.mediaItems || (meta.mediaItems as MediaItem[]) || [];
@@ -404,20 +411,25 @@ export default function ContentDetailPage() {
   }
 
   async function handleReplaceMedia(order: number, file: File) {
-    // Remove old + add new (simplest approach)
-    await fetch(`/api/creators/content/${params.id}/remove-media`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order }),
-    });
-    const fd = new FormData();
-    fd.append("files", file);
-    if (isHandwritten && file.type.startsWith("image/")) fd.append("handwritten", "true");
-    fd.append("language", content?.language || "en");
-    const res = await fetch(`/api/creators/content/${params.id}/add-media`, { method: "POST", body: fd });
-    const data = await res.json();
-    if (data.success) { toast.success("File replaced"); fetchContent(); }
-    else toast.error(data.error?.message || "Failed to replace");
+    setReplacingOrder(order);
+    try {
+      // Remove old + add new (simplest approach)
+      await fetch(`/api/creators/content/${params.id}/remove-media`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order }),
+      });
+      const fd = new FormData();
+      fd.append("files", file);
+      if (isHandwritten && file.type.startsWith("image/")) fd.append("handwritten", "true");
+      fd.append("language", content?.language || "en");
+      const res = await fetch(`/api/creators/content/${params.id}/add-media`, { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.success) { toast.success("File replaced"); fetchContent(); }
+      else toast.error(data.error?.message || "Failed to replace");
+    } finally {
+      setReplacingOrder(null);
+    }
   }
 
   function handleImageTextChange(order: number, newText: string) {
@@ -468,7 +480,7 @@ export default function ContentDetailPage() {
   return (
     <div className="max-w-5xl space-y-6">
       {lightboxIndex !== null && imageUrls.length > 0 && (
-        <Lightbox images={imageUrls} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
+        <ImageLightbox images={imageUrls} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
       )}
 
       {/* Header */}
@@ -571,6 +583,7 @@ export default function ContentDetailPage() {
                       onReplace={(file) => handleReplaceMedia(item.order, file)}
                       onTextChange={(newText) => handleImageTextChange(item.order, newText)}
                       onOpenLightbox={() => setLightboxIndex(i)}
+                      replacing={replacingOrder === item.order}
                     />
                   ))}
                 </div>

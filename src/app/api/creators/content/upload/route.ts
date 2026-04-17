@@ -9,7 +9,7 @@ import { creatorContent, creatorProfiles } from "@/db/schema/creators";
 import { eq, sql } from "drizzle-orm";
 import { checkCreator } from "@/lib/check-creator";
 import { uploadToStorage, generateStorageKey } from "@/lib/s3";
-import { aiVision } from "@/lib/ai/provider";
+import { aiVision, type AIModel } from "@/lib/ai/provider";
 import {
   type MediaItem,
   validateFile,
@@ -18,6 +18,13 @@ import {
   primaryMediaUrl,
   primaryFileUploadId,
 } from "@/lib/media-items";
+import {
+  buildOcrPrompt,
+  parseOcrBlocks,
+  blocksToMarkdown,
+  blocksToPlainText,
+  type OcrBlock,
+} from "@/lib/content-pipeline/ocr-blocks";
 
 // ---------------------------------------------------------------------------
 // POST /api/creators/content/upload
@@ -50,6 +57,7 @@ export async function POST(request: NextRequest) {
     const description = formData.get("description") as string | null;
     const body = formData.get("body") as string | null;
     const handwritten = formData.get("handwritten") === "true";
+    const selectedOcrModel = (formData.get("ocrModel") as string) || undefined;
     const boardId = formData.get("boardId") as string | null;
     const standardId = formData.get("standardId") as string | null;
     const subjectId = formData.get("subjectId") as string | null;
@@ -94,6 +102,7 @@ export async function POST(request: NextRequest) {
     // Process each file
     const mediaItems: MediaItem[] = [];
     const ocrTexts: string[] = [];
+    const allOcrBlocks: OcrBlock[][] = []; // structured blocks per image
     let totalOcrCost = 0;
     let ocrModel = "";
 
@@ -129,30 +138,46 @@ export async function POST(request: NextRequest) {
         order: i,
       };
 
-      // OCR for images if handwritten flag
+      // OCR for images if handwritten flag — structured block extraction
       if (handwritten && mediaType === "image") {
         try {
           const base64 = buffer.toString("base64");
           const mt = file.type as "image/png" | "image/jpeg" | "image/webp" | "image/gif";
           const langNames: Record<string, string> = { hi: "Hindi", ml: "Malayalam", ta: "Tamil", te: "Telugu", kn: "Kannada" };
-          const hint = langNames[language] ? ` The handwriting is likely in ${langNames[language]}.` : "";
+          const langHint = langNames[language] || undefined;
 
+          const ocrPrompt = buildOcrPrompt(langHint);
           const result = await aiVision(
-            `Extract all text from this handwritten note. Preserve formatting, headings, math formulas (LaTeX). Describe diagrams briefly. Markdown format.${hint}`,
+            ocrPrompt,
             base64, mt,
-            { temperature: 0.1, maxTokens: 4096, language }
+            {
+              temperature: 0,           // deterministic output for OCR accuracy
+              maxTokens: 8192,          // full educational response without truncation
+              language,
+              ...(selectedOcrModel ? { model: selectedOcrModel as AIModel } : {}),
+            }
           );
-          item.extractedText = result.content;
+
+          // Parse structured blocks from AI response
+          const blocks = parseOcrBlocks(result.content);
+          const markdown = blocksToMarkdown(blocks);
+          const plainText = blocksToPlainText(blocks);
+
+          item.extractedText = markdown; // markdown for rendering
+          item.extractedBlocks = blocks; // structured blocks for RichContentViewer
           totalOcrCost += result.costUsd;
           ocrModel = result.model;
-          ocrTexts.push(result.content);
+          ocrTexts.push(markdown);
+          allOcrBlocks.push(blocks);
 
+          // Store plain text in fileUploads for search indexing
           await db.update(fileUploads)
-            .set({ processingStatus: "completed", extractedText: result.content })
+            .set({ processingStatus: "completed", extractedText: plainText })
             .where(eq(fileUploads.id, upload.id));
         } catch {
           item.extractedText = "[OCR failed]";
           ocrTexts.push("[OCR failed]");
+          allOcrBlocks.push([{ type: "text", content: "[OCR failed]" }]);
           await db.update(fileUploads)
             .set({ processingStatus: "failed" })
             .where(eq(fileUploads.id, upload.id));
@@ -162,7 +187,7 @@ export async function POST(request: NextRequest) {
       mediaItems.push(item);
     }
 
-    // Build body: user text + OCR results
+    // Build body: user text + OCR results (markdown for search/AI pipeline)
     let combinedBody = body || "";
     if (ocrTexts.length > 0) {
       const ocrBlock = ocrTexts.map((t, i) => {
@@ -173,7 +198,20 @@ export async function POST(request: NextRequest) {
       combinedBody = combinedBody ? `${combinedBody}\n\n---\n\n${ocrBlock}` : ocrBlock;
     }
 
-    const contentType = dominantContentType(mediaItems, !!combinedBody);
+    let contentType = dominantContentType(mediaItems, !!combinedBody);
+
+    // Override: standalone non-handwritten images get the "image" pipeline
+    // instead of being treated as notes
+    if (
+      contentType === "note" &&
+      !handwritten &&
+      mediaItems.length > 0 &&
+      mediaItems.every((i) => i.type === "image") &&
+      !combinedBody
+    ) {
+      contentType = "image";
+    }
+
     const pMediaUrl = primaryMediaUrl(mediaItems);
     const pFileUploadId = primaryFileUploadId(mediaItems);
 
@@ -211,6 +249,11 @@ export async function POST(request: NextRequest) {
         pageCount: mediaItems.filter(i => i.type === "image").length,
         ocrModel: ocrModel || undefined,
         ocrCostUsd: totalOcrCost || undefined,
+        // Structured OCR blocks (for rich rendering of tables, formulas, diagrams)
+        ocrBlocks: allOcrBlocks.length > 0 ? allOcrBlocks : undefined,
+        // Pipeline tracking — initialized for stage-based processing
+        pipelineStage: null,
+        pipelineCompletedStages: [],
       },
     }).returning();
 
