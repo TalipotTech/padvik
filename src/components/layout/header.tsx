@@ -4,6 +4,10 @@ import { useBoardSelection } from "@/hooks/use-board-selection";
 import { Badge } from "@/components/ui/badge";
 import { MobileSidebar } from "@/components/layout/sidebar";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { DoubtBadge } from "@/components/doubts/doubt-badge";
+import { NewContentBadge } from "@/components/classrooms/new-content-badge";
+import { Sparkles } from "lucide-react";
+import Link from "next/link";
 
 interface HeaderProps {
   user: {
@@ -11,6 +15,8 @@ interface HeaderProps {
     email?: string | null;
     image?: string | null;
     role?: string;
+    isCreator?: boolean;
+    creatorDisplayName?: string | null;
   };
   signOutAction: () => Promise<void>;
 }
@@ -23,16 +29,36 @@ export function Header({ user, signOutAction }: HeaderProps) {
       <MobileSidebar user={user} signOutAction={signOutAction} />
 
       <div className="flex flex-1 items-center gap-3">
-        {/* Board/class badge — visible when user has selected one */}
-        {boardName && (
-          <Badge variant="secondary" className="hidden sm:inline-flex text-xs">
-            {boardName} {grade ? `· Class ${grade}` : ""}
-          </Badge>
+        {user.isCreator ? (
+          /* Creator header — show creator name + badge */
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium truncate max-w-[200px]">
+              {user.creatorDisplayName || user.name || "Creator"}
+            </span>
+            <Badge variant="secondary" className="text-xs">Creator</Badge>
+          </div>
+        ) : (
+          /* Standard header — show board/class badge */
+          boardName && (
+            <Badge variant="secondary" className="hidden sm:inline-flex text-xs">
+              {boardName} {grade ? `· Class ${grade}` : ""}
+            </Badge>
+          )
         )}
       </div>
 
       {/* Right side */}
       <div className="flex items-center gap-2">
+        {/* New classroom content badge — students only */}
+        {!user.isCreator && user.role !== "admin" && (
+          <Link href="/dashboard/classroom" className="hover:opacity-80" title="Classrooms">
+            <NewContentBadge variant="icon" />
+          </Link>
+        )}
+        <Link href={user.isCreator ? "/dashboard/creator/doubts" : "/dashboard/doubts"} className="hover:opacity-80">
+          <DoubtBadge />
+        </Link>
         <NotificationBell />
       </div>
     </header>

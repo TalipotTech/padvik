@@ -5,6 +5,11 @@ import { Header } from "@/components/layout/header";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { Toaster } from "@/components/ui/sonner";
 import { FloatingChatWidget } from "@/components/chat/floating-chat-widget";
+import { UserSessionSync } from "@/components/layout/user-session-sync";
+import { db } from "@/db";
+import { users } from "@/db/schema/auth";
+import { creatorProfiles } from "@/db/schema/creators";
+import { eq } from "drizzle-orm";
 
 const DEV_BYPASS = process.env.NODE_ENV === "development";
 
@@ -19,18 +24,45 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // Always try to get the real session first
   const session = await auth();
 
-  let user: { name: string | null; email: string | null; image: string | null; role: string };
+  let user: { name: string | null; email: string | null; image: string | null; role: string; isCreator?: boolean; creatorDisplayName?: string | null };
 
   if (session?.user) {
+    let isCreator = (session.user as { isCreator?: boolean }).isCreator ?? false;
+    let creatorDisplayName: string | null = null;
+
+    const userId = Number(session.user.id);
+
+    // If JWT says not a creator, double-check DB (JWT may be stale after registration)
+    if (!isCreator && !isNaN(userId)) {
+      const [dbUser] = await db
+        .select({ isCreator: users.isCreator })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      isCreator = dbUser?.isCreator ?? false;
+    }
+
+    // Fetch creator display name for the header
+    if (isCreator && !isNaN(userId)) {
+      const [profile] = await db
+        .select({ displayName: creatorProfiles.displayName })
+        .from(creatorProfiles)
+        .where(eq(creatorProfiles.userId, userId))
+        .limit(1);
+      creatorDisplayName = profile?.displayName ?? null;
+    }
+
     user = {
       name: session.user.name ?? null,
       email: session.user.email ?? null,
       image: session.user.image ?? null,
       role: (session.user as { role?: string }).role ?? "student",
+      isCreator,
+      creatorDisplayName,
     };
   } else if (DEV_BYPASS) {
     // Fall back to dev user only in development when no session exists
-    user = devUser;
+    user = { ...devUser, isCreator: false };
   } else {
     redirect("/login");
   }
@@ -40,8 +72,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
     await signOut({ redirectTo: "/login" });
   }
 
+  // Get the userId for session sync (clear stale localStorage from previous user)
+  const sessionUserId = session?.user?.id || "dev";
+
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div data-dashboard-layout className="flex h-screen overflow-hidden bg-background">
+      <UserSessionSync userId={sessionUserId} isCreator={user.isCreator} />
       <Sidebar user={user} signOutAction={handleSignOut} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header user={user} signOutAction={handleSignOut} />

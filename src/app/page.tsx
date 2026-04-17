@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PadvikLogo } from "@/components/ui/padvik-logo";
@@ -21,6 +21,8 @@ import { AuthDialog } from "@/components/auth/auth-dialog";
 import { SignupDialog } from "@/components/auth/signup-dialog";
 import { BreakingBanner } from "@/components/notifications/BreakingBanner";
 import { BoardUpdatesFeed } from "@/components/notifications/BoardUpdatesFeed";
+import { ContentCard, type ContentCardProps } from "@/components/content/content-card";
+import { CreatorCard, type CreatorCardProps } from "@/components/creators/creator-card";
 
 const FEATURES = [
   {
@@ -78,6 +80,60 @@ export default function HomePage() {
   const [signInOpen, setSignInOpen] = useState(false);
   const [signUpOpen, setSignUpOpen] = useState(false);
 
+  // Featured creators + trending content for discovery sections
+  const [featuredCreators, setFeaturedCreators] = useState<CreatorCardProps[]>([]);
+  const [trendingContent, setTrendingContent] = useState<ContentCardProps[]>([]);
+
+  useEffect(() => {
+    fetch("/api/creators/featured?limit=6")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success) {
+          setFeaturedCreators(
+            (json.data.creators ?? []).map((c: Record<string, unknown>) => ({
+              userId: c.userId,
+              displayName: c.displayName,
+              institution: c.institution,
+              institutionType: c.institutionType,
+              avatarUrl: c.avatarUrl,
+              isVerified: c.creatorVerified,
+              isFeatured: c.isFeatured,
+              followerCount: Number(c.followerCount ?? 0),
+              contentCount: Number(c.contentCount ?? 0),
+              publishedCount: Number(c.publishedCount ?? 0),
+              rating: c.rating,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+
+    fetch("/api/content/featured?limit=8")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success) {
+          setTrendingContent(
+            (json.data.items ?? []).map((c: Record<string, unknown>) => ({
+              id: c.id as number,
+              title: c.title as string,
+              contentType: c.contentType as string,
+              thumbnailUrl: c.thumbnailUrl as string | null,
+              durationSeconds: c.durationSeconds as number | null,
+              isPremium: c.isPremium as boolean,
+              viewCount: Number(c.viewCount ?? 0),
+              likeCount: Number(c.likeCount ?? 0),
+              publishedAt: c.publishedAt as string,
+              creatorName: c.creatorName as string,
+              creatorAvatar: c.creatorAvatar as string | null,
+              creatorVerified: c.creatorVerified as boolean,
+              creatorId: c.creatorId as number,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="min-h-screen bg-background">
       {/* Breaking News Banner */}
@@ -88,6 +144,16 @@ export default function HomePage() {
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4">
           <PadvikLogo size="lg" />
           <div className="flex items-center gap-3">
+            <Link href="/explore">
+              <Button variant="ghost" size="sm">
+                Explore
+              </Button>
+            </Link>
+            <Link href="/creators">
+              <Button variant="ghost" size="sm">
+                Teach on Padvik
+              </Button>
+            </Link>
             <Button variant="ghost" size="sm" onClick={() => setSignInOpen(true)}>
               Sign In
             </Button>
@@ -162,6 +228,85 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* Featured Educators — live data or launch placeholder */}
+      {featuredCreators.length > 0 ? (
+        <section className="mx-auto max-w-7xl px-4 py-16">
+          <div className="mx-auto max-w-2xl text-center mb-10">
+            <h2 className="text-3xl font-bold tracking-tight">Featured Educators</h2>
+            <p className="mt-2 text-muted-foreground">
+              Learn from verified teachers, tuition centers, and content creators
+            </p>
+          </div>
+          <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+            {featuredCreators.map((creator) => (
+              <CreatorCard key={creator.userId} {...creator} />
+            ))}
+          </div>
+          <div className="mt-8 text-center">
+            <Link href="/explore?tab=creators">
+              <Button variant="outline" className="gap-2">
+                View All Creators <ChevronRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
+        </section>
+      ) : (
+        /* Launch placeholder — shown when no creators/content exist yet */
+        <section className="border-t bg-gradient-to-b from-violet-50/50 to-transparent dark:from-violet-950/10">
+          <div className="mx-auto max-w-7xl px-4 py-16">
+            <div className="mx-auto max-w-3xl text-center">
+              <div className="flex justify-center gap-3 mb-6">
+                {[Users, BookOpen, Sparkles].map((Icon, i) => (
+                  <div key={i} className="flex h-12 w-12 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-900/30">
+                    <Icon className="h-6 w-6 text-violet-600" />
+                  </div>
+                ))}
+              </div>
+              <h2 className="text-3xl font-bold tracking-tight">A growing community of educators</h2>
+              <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
+                Teachers, tuition centers, and independent educators are creating lessons, notes, question sets, and video tutorials — all mapped to the Indian curriculum.
+              </p>
+              <div className="mt-8 flex items-center justify-center gap-4">
+                <Link href="/creators">
+                  <Button className="gap-2">
+                    <Users className="h-4 w-4" /> Start Teaching on Padvik
+                  </Button>
+                </Link>
+                <Button variant="outline" onClick={() => setSignUpOpen(true)} className="gap-2">
+                  Join as Student <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Popular Content — only shown when content exists */}
+      {trendingContent.length > 0 && (
+        <section className="border-t bg-muted/20">
+          <div className="mx-auto max-w-7xl px-4 py-16">
+            <div className="mx-auto max-w-2xl text-center mb-10">
+              <h2 className="text-3xl font-bold tracking-tight">Popular on Padvik</h2>
+              <p className="mt-2 text-muted-foreground">
+                Trending educational content from our creator community
+              </p>
+            </div>
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+              {trendingContent.map((content) => (
+                <ContentCard key={content.id} {...content} />
+              ))}
+            </div>
+            <div className="mt-8 text-center">
+              <Link href="/explore">
+                <Button variant="outline" className="gap-2">
+                  Browse All Content <ChevronRight className="h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Board Updates */}
       <BoardUpdatesFeed />
 
@@ -232,6 +377,53 @@ export default function HomePage() {
               <p className="mt-1 text-xs text-muted-foreground">{item.desc}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* For Creators */}
+      <section className="border-t bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-950/20 dark:to-indigo-950/20">
+        <div className="mx-auto max-w-7xl px-4 py-20">
+          <div className="flex flex-col items-center gap-8 lg:flex-row lg:gap-16">
+            <div className="flex-1 text-center lg:text-left">
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-violet-100 px-4 py-1.5 text-sm font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                <Sparkles className="size-4" />
+                For Educators
+              </div>
+              <h2 className="text-3xl font-bold tracking-tight">Teach on Padvik</h2>
+              <p className="mt-3 text-muted-foreground max-w-lg">
+                Share your knowledge with millions of Indian students. Upload video lessons,
+                notes, and question sets — all mapped to the curriculum. Clear doubts, build
+                your audience, and earn from your expertise.
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3 justify-center lg:justify-start">
+                <Link href="/creators">
+                  <Button size="lg" className="gap-2">
+                    <Sparkles className="size-4" />
+                    Become a Creator
+                  </Button>
+                </Link>
+                <Link href="/creators">
+                  <Button size="lg" variant="outline">
+                    Learn More
+                  </Button>
+                </Link>
+              </div>
+            </div>
+            <div className="flex-1 grid grid-cols-2 gap-4 max-w-sm">
+              {[
+                { icon: Brain, label: "AI-Mapped Content", desc: "Auto-tag to syllabus" },
+                { icon: Users, label: "Grow Followers", desc: "Build your audience" },
+                { icon: MessageSquare, label: "Clear Doubts", desc: "Help students learn" },
+                { icon: BarChart3, label: "Track Performance", desc: "Detailed analytics" },
+              ].map((item) => (
+                <div key={item.label} className="rounded-xl border bg-card p-4 text-center">
+                  <item.icon className="mx-auto size-6 text-violet-500" />
+                  <h3 className="mt-2 text-sm font-semibold">{item.label}</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{item.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 

@@ -411,6 +411,82 @@ export async function addFoundationJob(
 }
 
 // ---------------------------------------------------------------------------
+// Creator Content Processing Queue
+// ---------------------------------------------------------------------------
+export interface CreatorContentJobData {
+  contentId: number;
+  creatorId: number;
+  action: "process_full" | "ai_summarize" | "ai_tag" | "ai_quality_check";
+}
+
+let _creatorContentQueue: Queue<CreatorContentJobData> | null = null;
+
+export function getCreatorContentQueue(): Queue<CreatorContentJobData> {
+  if (!_creatorContentQueue) {
+    _creatorContentQueue = new Queue<CreatorContentJobData>(
+      "creator-content-process",
+      {
+        connection: getRedisConnection(),
+        defaultJobOptions: {
+          attempts: 2,
+          backoff: { type: "exponential", delay: 5000 },
+          removeOnComplete: { count: 200 },
+          removeOnFail: { count: 200 },
+        },
+      }
+    );
+  }
+  return _creatorContentQueue;
+}
+
+export async function addCreatorContentJob(
+  data: CreatorContentJobData
+): Promise<string> {
+  const queue = getCreatorContentQueue();
+  const job = await queue.add(
+    `process-${data.contentId}`,
+    data,
+    { priority: 3 }
+  );
+  return job.id ?? "";
+}
+
+// ---------------------------------------------------------------------------
+// School Import Queue
+// ---------------------------------------------------------------------------
+export interface SchoolImportJobData {
+  source: string;
+  stateFilter?: string;
+  csvPath?: string;
+}
+
+let _schoolImportQueue: Queue<SchoolImportJobData> | null = null;
+
+export function getSchoolImportQueue(): Queue<SchoolImportJobData> {
+  if (!_schoolImportQueue) {
+    _schoolImportQueue = new Queue<SchoolImportJobData>(
+      "import-schools",
+      {
+        connection: getRedisConnection(),
+        defaultJobOptions: {
+          attempts: 2,
+          backoff: { type: "exponential", delay: 10000 },
+          removeOnComplete: { count: 50 },
+          removeOnFail: { count: 50 },
+        },
+      }
+    );
+  }
+  return _schoolImportQueue;
+}
+
+export async function addSchoolImportJob(data: SchoolImportJobData): Promise<string> {
+  const queue = getSchoolImportQueue();
+  const job = await queue.add(`import-${data.source}`, data, { priority: 5 });
+  return job.id ?? "";
+}
+
+// ---------------------------------------------------------------------------
 // Queue control helpers
 // ---------------------------------------------------------------------------
 export async function pauseScrapeQueue(): Promise<void> {

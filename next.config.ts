@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["pdf-to-img", "pdfjs-dist"],
   experimental: {
     serverActions: {
-      bodySizeLimit: "2mb",
+      bodySizeLimit: "2gb",
     },
   },
   env: {

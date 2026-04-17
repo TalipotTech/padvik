@@ -14,6 +14,14 @@ const routeLabels: Record<string, string> = {
   analytics: "Analytics",
   settings: "Settings",
   classroom: "Classroom",
+  classrooms: "Classrooms",
+  creator: "Creator",
+  doubts: "Doubts",
+  content: "Content",
+  upload: "Upload",
+  profile: "Profile",
+  ask: "Ask",
+  schools: "Schools",
   "question-bank": "Question Bank",
   "question-papers": "Question Papers",
   "question-viewer": "Question Viewer",
@@ -21,23 +29,41 @@ const routeLabels: Record<string, string> = {
   "scrape-jobs": "Scrape Jobs",
   curriculum: "Curriculum Explorer",
   "syllabus-viewer": "Syllabus Viewer",
+  "creator-register": "Creator Register",
+};
+
+// Pages shared between students and creators — detect creator context
+// and rewrite breadcrumb links accordingly
+const creatorOverrides: Record<string, string> = {
+  "/dashboard/doubts": "/dashboard/creator/doubts",
+  "/dashboard/content": "/dashboard/creator/content",
 };
 
 export function Breadcrumbs() {
   const pathname = usePathname();
 
-  // Split and filter out empty segments and the "dashboard" prefix
+  // Detect creator context for breadcrumb link overrides
+  const isCreatorContext = typeof window !== "undefined" &&
+    (pathname.includes("/creator/") ||
+     localStorage.getItem("padvik-last-role") === "creator");
+
+  // Split and filter out empty segments
   const segments = pathname.split("/").filter(Boolean);
 
   // Build breadcrumb items
   const crumbs = segments.map((segment, index) => {
-    const href = "/" + segments.slice(0, index + 1).join("/");
+    let href = "/" + segments.slice(0, index + 1).join("/");
     const label =
       routeLabels[segment] ||
       segment
         .replace(/-/g, " ")
         .replace(/\b\w/g, (c) => c.toUpperCase());
     const isLast = index === segments.length - 1;
+
+    // Override href for creator context on shared pages
+    if (isCreatorContext && creatorOverrides[href]) {
+      href = creatorOverrides[href];
+    }
 
     return { href, label, isLast };
   });

@@ -40,20 +40,25 @@ export function BoardPicker({ open, onOpenChange }: BoardPickerProps) {
     setSelectedGrade(null);
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
     if (!selectedBoard || !selectedGrade) return;
+
+    // Save to DB first (source of truth)
+    try {
+      await fetch("/api/user/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ boardId: selectedBoard.id, grade: selectedGrade }),
+      });
+    } catch { /* continue — update local state even if DB fails */ }
+
+    // Then update local state + cache
     setSelection({
       boardId: selectedBoard.id,
       boardName: selectedBoard.code,
       grade: selectedGrade,
       stream: null,
     });
-    // Persist to user profile in DB (fire-and-forget)
-    fetch("/api/user/profile", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ boardId: selectedBoard.id, grade: selectedGrade }),
-    }).catch(() => { /* non-critical — localStorage is the primary store */ });
     onOpenChange(false);
   }
 

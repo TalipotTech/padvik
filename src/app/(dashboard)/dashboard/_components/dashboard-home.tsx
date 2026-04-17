@@ -33,6 +33,8 @@ import { useBoardSelection } from "@/hooks/use-board-selection";
 import { useData } from "@/hooks/use-data";
 import { getSubjects } from "@/lib/data";
 import { DashboardNotifications } from "@/components/notifications/DashboardNotifications";
+import { markClassroomsSeen } from "@/components/classrooms/new-content-badge";
+import { ContentCard, type ContentCardProps } from "@/components/content/content-card";
 
 interface DashboardHomeProps {
   userName: string;
@@ -61,6 +63,7 @@ const adminActions = [
   { href: "/admin/ai-providers", label: "AI Providers", icon: Cpu, color: "text-blue-600" },
   { href: "/admin/notification-scraper", label: "Notifications", icon: Bell, color: "text-pink-600" },
   { href: "/curriculum", label: "Curriculum Explorer", icon: Layers, color: "text-emerald-600" },
+  { href: "/schools", label: "Schools Directory", icon: GraduationCap, color: "text-teal-600" },
   { href: "/dashboard/settings", label: "Settings", icon: Settings, color: "text-muted-foreground" },
 ];
 
@@ -73,6 +76,7 @@ const parentActions = [
 
 function getActionsForRole(role: string) {
   switch (role) {
+    case "creator": return teacherActions;
     case "teacher": return teacherActions;
     case "admin": return adminActions;
     case "parent": return parentActions;
@@ -82,6 +86,7 @@ function getActionsForRole(role: string) {
 
 function getRoleLabel(role: string) {
   switch (role) {
+    case "creator": return "Creator";
     case "teacher": return "Teacher";
     case "admin": return "Administrator";
     case "parent": return "Parent";
@@ -93,12 +98,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
   const { boardId, boardName, grade } = useBoardSelection();
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Auto-open picker if no board selected (students and teachers need board context)
-  useEffect(() => {
-    if (!boardId && (userRole === "student" || userRole === "teacher")) {
-      setPickerOpen(true);
-    }
-  }, [boardId, userRole]);
+  // Board selection is now handled via the CTA banner below — no forced dialog popup
 
   const firstName = userName.split(" ")[0].split("@")[0];
   const quickActions = getActionsForRole(userRole);
@@ -128,6 +128,66 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       .catch(() => {});
   }, [boardId, grade]);
 
+  // Fetch classroom feed for students
+  interface ClassroomFeedItem {
+    id: number;
+    name: string;
+    teacherName: string | null;
+    teacherAvatar: string | null;
+    content: Array<{
+      id: number;
+      title: string;
+      contentType: string;
+      thumbnailUrl: string | null;
+      aiSummary: string | null;
+      createdAt: string;
+    }>;
+  }
+  const [classroomFeed, setClassroomFeed] = useState<ClassroomFeedItem[]>([]);
+  const [classroomFeedLoading, setClassroomFeedLoading] = useState(false);
+  useEffect(() => {
+    if (userRole !== "student") return;
+    setClassroomFeedLoading(true);
+    fetch("/api/my/classroom-feed")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success) setClassroomFeed(json.data.classrooms ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setClassroomFeedLoading(false));
+  }, [userRole]);
+
+  // Fetch trending content for students (discover section)
+  const [discoverContent, setDiscoverContent] = useState<ContentCardProps[]>([]);
+  useEffect(() => {
+    if (userRole !== "student") return;
+    const params = boardId ? `?boardId=${boardId}&limit=6` : "?limit=6";
+    fetch(`/api/content/featured${params}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.success) {
+          setDiscoverContent(
+            (json.data.items ?? []).map((c: Record<string, unknown>) => ({
+              id: c.id as number,
+              title: c.title as string,
+              contentType: c.contentType as string,
+              thumbnailUrl: c.thumbnailUrl as string | null,
+              durationSeconds: c.durationSeconds as number | null,
+              isPremium: c.isPremium as boolean,
+              viewCount: Number(c.viewCount ?? 0),
+              likeCount: Number(c.likeCount ?? 0),
+              publishedAt: c.publishedAt as string,
+              creatorName: c.creatorName as string,
+              creatorAvatar: c.creatorAvatar as string | null,
+              creatorVerified: c.creatorVerified as boolean,
+              creatorId: c.creatorId as number,
+            }))
+          );
+        }
+      })
+      .catch(() => {});
+  }, [userRole, boardId]);
+
   return (
     <div className="space-y-6 pt-2">
       {/* Welcome banner */}
@@ -148,21 +208,49 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
               )}
             </div>
           </div>
-          {(userRole === "student" || userRole === "teacher") && (
+          {(userRole === "student" || userRole === "teacher" || userRole === "creator") && boardName && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => setPickerOpen(true)}
               className="shrink-0"
             >
-              {boardName ? "Change" : "Select Board"}
+              Change
             </Button>
           )}
         </div>
       </div>
 
+      {/* Onboarding CTA — shown when board/grade not set */}
+      {!boardId && (userRole === "student" || userRole === "teacher" || userRole === "creator") && (
+        <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 shrink-0">
+              <GraduationCap className="h-6 w-6 text-primary" />
+            </div>
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold">Set up your profile</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Select your education board and class to see relevant content, subjects, and exam papers tailored for you.
+              </p>
+              <div className="flex gap-3 mt-4">
+                <Button onClick={() => setPickerOpen(true)} className="gap-2">
+                  <GraduationCap className="h-4 w-4" />
+                  Select Board &amp; Class
+                </Button>
+                <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => {
+                  // Skip — just dismiss (will show again next visit until they set it)
+                }}>
+                  Skip for now
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Continue Learning — shown at top for students */}
-      {continueData.length > 0 && (userRole === "student" || userRole === "teacher") && (
+      {continueData.length > 0 && (userRole === "student" || userRole === "teacher" || userRole === "creator") && (
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold flex items-center gap-2">
@@ -193,6 +281,92 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
                   </CardContent>
                 </Card>
               </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* My Classrooms — for students */}
+      {userRole === "student" && !classroomFeedLoading && classroomFeed.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Users className="h-4 w-4 text-violet-600" />
+              My Classrooms
+            </h2>
+            <Link href="/dashboard/classroom" className="text-xs text-violet-600 hover:underline">
+              View all
+            </Link>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {classroomFeed.slice(0, 3).map((cr) => (
+              <Link key={cr.id} href={`/dashboard/classroom/${cr.id}`}>
+                <Card className="hover:border-primary/50 hover:shadow-md transition-all cursor-pointer h-full">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-100 dark:bg-violet-900/30">
+                        <Users className="h-4 w-4 text-violet-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold truncate">{cr.name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate">by {cr.teacherName || "Teacher"}</p>
+                      </div>
+                    </div>
+                    {cr.content.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {cr.content.slice(0, 2).map((item) => (
+                          <div key={item.id} className="flex items-center gap-2 text-xs">
+                            <ContentTypeIcon type={item.contentType} />
+                            <span className="truncate flex-1">{item.title}</span>
+                            <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(item.createdAt)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-muted-foreground italic">No recent content</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Join a classroom CTA — for students with no classrooms */}
+      {userRole === "student" && !classroomFeedLoading && classroomFeed.length === 0 && (
+        <Card className="border-dashed border-violet-200 dark:border-violet-800">
+          <CardContent className="flex items-center gap-4 p-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-900/30">
+              <Users className="h-5 w-5 text-violet-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium">Join a classroom</p>
+              <p className="text-xs text-muted-foreground">Get content from your teachers and tutors</p>
+            </div>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/dashboard/classroom">Join</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Discover Content — for students */}
+      {userRole === "student" && discoverContent.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-600" />
+              Discover Content
+              {boardName && <span className="text-[10px] font-normal text-muted-foreground">for {boardName}</span>}
+            </h2>
+            <Link href={boardId ? `/dashboard/explore?boardId=${boardId}` : "/dashboard/explore"} className="text-xs text-violet-600 hover:underline">
+              Browse all
+            </Link>
+          </div>
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
+            {discoverContent.slice(0, 6).map((item) => (
+              <ContentCard key={item.id} {...item} href={`/dashboard/content/${item.id}`} />
             ))}
           </div>
         </div>
@@ -232,12 +406,12 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       <DashboardNotifications />
 
       {/* Subjects overview — for students and teachers */}
-      {(userRole === "student" || userRole === "teacher") && (
+      {(userRole === "student" || userRole === "teacher" || userRole === "creator") && (
         <>
           {subjectsLoading && boardId && (
             <div className="space-y-3">
               <h2 className="text-lg font-semibold text-foreground">
-                {userRole === "teacher" ? "Subjects" : "Your Subjects"}
+                {userRole === "teacher" || userRole === "creator" ? "Subjects" : "Your Subjects"}
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {Array.from({ length: 4 }).map((_, i) => (
@@ -249,7 +423,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
           {(subjects ?? []).length > 0 && (
             <div className="space-y-3">
               <h2 className="text-lg font-semibold text-foreground">
-                {userRole === "teacher" ? "Subjects" : "Your Subjects"}
+                {userRole === "teacher" || userRole === "creator" ? "Subjects" : "Your Subjects"}
               </h2>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {(subjects ?? []).map((subject, i) => {
@@ -327,7 +501,7 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       )}
 
       {/* Teacher-specific section */}
-      {userRole === "teacher" && (
+      {userRole === "teacher" || userRole === "creator" && (
         <div className="space-y-3">
           <h2 className="text-lg font-semibold text-foreground">Your Classrooms</h2>
           <Card>
@@ -353,12 +527,74 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Content type icon for classroom feed
+// ---------------------------------------------------------------------------
+
+function ContentTypeIcon({ type }: { type: string }) {
+  const cls = "h-3.5 w-3.5 shrink-0";
+  switch (type) {
+    case "video": return <Play className={`${cls} text-blue-500`} />;
+    case "audio": return <Activity className={`${cls} text-green-500`} />;
+    case "image": return <Sparkles className={`${cls} text-amber-500`} />;
+    case "document": return <FileText className={`${cls} text-red-500`} />;
+    default: return <BookOpen className={`${cls} text-violet-500`} />;
+  }
+}
+
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d`;
+  return `${Math.floor(days / 7)}w`;
+}
+
+// ---------------------------------------------------------------------------
 // Admin Section with live pipeline stats
 // ---------------------------------------------------------------------------
 
 interface PipelineStats {
   totals: { contentItems: number; publishedItems: number; questions: number };
   aiUsageToday: Array<{ total_cost: number }>;
+}
+
+function SchoolsCard() {
+  const [schoolCount, setSchoolCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/schools/stats")
+      .then(r => r.json())
+      .then(d => { if (d.success) setSchoolCount(d.data.totalSchools); })
+      .catch(() => {});
+  }, []);
+
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium text-sm">Schools Directory</h3>
+          {schoolCount !== null && (
+            <Badge variant="secondary" className="text-xs">{schoolCount.toLocaleString()} schools</Badge>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          Browse, search, and import schools from CBSE, ICSE, Kerala SCERT, and UDISE databases.
+        </p>
+        <div className="flex gap-2 mt-3">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/schools">Browse</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/schools">Import</Link>
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 function AdminSection() {
@@ -385,7 +621,7 @@ function AdminSection() {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Card>
           <CardContent className="p-4">
             <h3 className="font-medium text-sm">Content Pipeline</h3>
@@ -413,6 +649,7 @@ function AdminSection() {
             </Button>
           </CardContent>
         </Card>
+        <SchoolsCard />
       </div>
     </div>
   );
