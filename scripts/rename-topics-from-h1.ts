@@ -108,7 +108,15 @@ async function main() {
     JOIN chapters c ON c.id = t.chapter_id
     JOIN subjects s ON s.id = c.subject_id
     JOIN standards st ON st.id = s.standard_id
-    WHERE t.title ~ '^Chapter [0-9]+ Content$'
+    WHERE (
+        t.title ~ '^Chapter [0-9]+ Content$'
+        -- Titles that carry a still-unprocessed chapter-number prefix from earlier
+        -- buggy extraction: "CHAPTER EIGHT MECHANICAL PROPERTIES OF SOLIDS",
+        -- "Chapter One: CONSTITUTION: WHY AND HOW?", "CHAPTER FOURTEEN: WAVES", etc.
+        OR t.title ~* '^chapter[ \t]+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty)([ \t:.-]|$)'
+        -- Stray leading digit prefix: "7 ENVIRONMENT AND SUSTAINABLE DEVELOPMENT".
+        OR t.title ~ '^[0-9]+[ \t:.-]+[A-Za-z]'
+      )
       ${gradeFilter}
     ORDER BY st.grade, s.name, c.chapter_number, t.id
   `);
