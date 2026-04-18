@@ -70,8 +70,24 @@ export async function GET(
     );
   }
 
-  // Admin/dev: show ALL content. Students: only published.
+  // Admin/dev: show ALL content. Students: only published + quality-gated.
   const isAdmin = session?.user?.role === "admin" || (process.env.NODE_ENV === "development" && !session);
+
+  // Hide low-quality / flagged / AI-refusal bodies from students so they
+  // never see "this topic is not covered in the provided chapter" text.
+  // These same rows are surfaced to admins via pendingContent for review.
+  const studentQualityFilter = sql`
+    ${contentItems.isPublished} = true
+    AND ${contentItems.reviewStatus} != 'needs_review'
+    AND ${contentItems.reviewStatus} != 'rejected'
+    AND (${contentItems.qualityScore} IS NULL OR ${contentItems.qualityScore}::decimal >= 0.5)
+    AND ${contentItems.body} NOT ILIKE '%is not covered in%'
+    AND ${contentItems.body} NOT ILIKE '%not covered in the provided%'
+    AND ${contentItems.body} NOT ILIKE '%does not appear in the%chapter%'
+    AND ${contentItems.body} NOT ILIKE '%cannot find%in the provided%'
+    AND ${contentItems.body} NOT ILIKE '%the provided text does not%'
+    AND length(${contentItems.body}) > 100
+  `;
 
   // Exclude 'foundation' content — that's shown only in the popup
   const content = isAdmin
@@ -83,7 +99,11 @@ export async function GET(
     : await db
         .select()
         .from(contentItems)
-        .where(and(eq(contentItems.topicId, topicId), eq(contentItems.isPublished, true), sql`${contentItems.contentType} != 'foundation'`))
+        .where(and(
+          eq(contentItems.topicId, topicId),
+          sql`${contentItems.contentType} != 'foundation'`,
+          studentQualityFilter,
+        ))
         .orderBy(contentItems.contentType, contentItems.createdAt);
 
   // For admin, no separate pending query needed — all content is in `content`

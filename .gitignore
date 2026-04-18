@@ -11,8 +11,14 @@ out/
 build/
 dist/
 
-# scraped data (PDFs, extracted text)
+# scraped data (PDFs, extracted text, caches, generated artefacts)
 data/pdfs/
+data/ncert-pdfs/
+data/ncert-chapter-titles/
+data/pdf-cache/
+data/test-output/
+data/demo-emails/
+data/udise-upload-*.csv
 
 # env files
 .env
@@ -59,3 +65,7 @@ swe-worker-*.js
 # Uploads (local dev)
 uploads/
 tmp/
+
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
+.claude/worktrees/

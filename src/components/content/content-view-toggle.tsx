@@ -23,6 +23,12 @@ interface ContentItem {
 interface ContentViewToggleProps {
   content: ContentItem;
   className?: string;
+  /**
+   * Sync key forwarded to the PDF viewer — pass the current topic id so
+   * the embedded PDF reloads/scrolls to top when the user selects a
+   * different topic (topics in the same chapter share one PDF URL).
+   */
+  syncKey?: string | number;
   /** Callback when user asks AI in the Book view — receives optional question text */
   onAskAI?: (question?: string) => void;
 }
@@ -102,7 +108,7 @@ function resolvePdfUrl(content: ContentItem): string | null {
 // If a PDF source is available, show Book | Text toggle with Book as default.
 // If no PDF, render MarkdownRenderer directly (backward compatible).
 
-export function ContentViewToggle({ content, className, onAskAI }: ContentViewToggleProps) {
+export function ContentViewToggle({ content, className, syncKey, onAskAI }: ContentViewToggleProps) {
   const pdfUrl = resolvePdfUrl(content);
   const hasPdf = !!pdfUrl;
 
@@ -145,7 +151,7 @@ export function ContentViewToggle({ content, className, onAskAI }: ContentViewTo
 
       {/* Content */}
       {view === "book" ? (
-        <PdfViewer pdfUrl={pdfUrl} title={content.title} onAskAI={onAskAI} />
+        <PdfViewer pdfUrl={pdfUrl} title={content.title} syncKey={syncKey} onAskAI={onAskAI} />
       ) : (
         <MarkdownRenderer content={content.body} />
       )}

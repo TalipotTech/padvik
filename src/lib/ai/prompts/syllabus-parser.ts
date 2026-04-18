@@ -105,6 +105,79 @@ ${params.pdfText.slice(0, 50000)}
 // ---------------------------------------------------------------------------
 // Parse and validate the AI response
 // ---------------------------------------------------------------------------
+/**
+ * Decode the most common HTML entities to plain text. Some source PDFs (especially
+ * CISCE pages/subject labels) pass entity-encoded strings through the AI, which
+ * otherwise land in our DB as literal "History &amp; Civics" or "Subject&#039;s".
+ * Keep this intentionally small — anything exotic should land as-is for review.
+ */
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, " ");
+}
+
+/**
+ * Some board PDFs (CISCE especially) list a numeric paper code like "869" that
+ * AI models dutifully return as the subjectCode. Our unique index doesn't care,
+ * but numeric codes look out of place alongside MATH/PHY/ENG. When we see a
+ * purely-numeric or suspiciously-short code, synthesize one from the name.
+ *
+ * Preserves meaningful short codes (PHY, ENG, ART, MMC) — only rewrites when
+ * the code is all digits (or a stub like "-" or "N/A").
+ */
+function deriveSubjectCode(name: string): string {
+  // Strip parentheticals first so "Name (Region)" doesn't pollute initials
+  // with individual letters from the parenthetical abbreviation.
+  const stripped = name.replace(/\([^)]*\)/g, " ");
+  const words = stripped
+    .replace(/[^A-Za-z\s&]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 0 && !/^(and|of|the|for|a|an|&)$/i.test(w));
+  if (words.length === 0) return "SUBJ";
+  if (words.length === 1) return words[0].slice(0, 12).toUpperCase();
+  // For short names use full initials; for long names (>=4 words) cap at 8.
+  const cap = words.length >= 4 ? 8 : 10;
+  return words
+    .map((w) => w[0])
+    .join("")
+    .slice(0, cap)
+    .toUpperCase();
+}
+
+function isDegenerateCode(code: string): boolean {
+  const trimmed = code.trim();
+  if (trimmed.length === 0) return true;
+  if (/^\d+$/.test(trimmed)) return true;           // purely numeric
+  if (/^[-_\s]+$/.test(trimmed)) return true;       // just punctuation
+  if (/^n\/?a$/i.test(trimmed)) return true;        // N/A, NA
+  return false;
+}
+
+function normalizeTitles(result: SyllabusParseResult): SyllabusParseResult {
+  result.subjectName = decodeHtmlEntities(result.subjectName).trim();
+  result.subjectCode = decodeHtmlEntities(result.subjectCode).trim();
+  // Replace AI-emitted numeric codes (paper numbers like "869") with synthesized
+  // letter codes derived from the subject name.
+  if (isDegenerateCode(result.subjectCode)) {
+    result.subjectCode = deriveSubjectCode(result.subjectName);
+  }
+  for (const ch of result.chapters) {
+    ch.title = decodeHtmlEntities(ch.title).trim();
+    if (ch.description) ch.description = decodeHtmlEntities(ch.description).trim();
+    for (const t of ch.topics) {
+      t.title = decodeHtmlEntities(t.title).trim();
+      if (t.description) t.description = decodeHtmlEntities(t.description).trim();
+    }
+  }
+  return result;
+}
+
 export function parseResponse(raw: string): SyllabusParseResult {
   // Strip markdown code fences if present
   let cleaned = raw.trim();
@@ -113,7 +186,7 @@ export function parseResponse(raw: string): SyllabusParseResult {
   }
 
   const parsed = JSON.parse(cleaned);
-  return syllabusParseResultSchema.parse(parsed);
+  return normalizeTitles(syllabusParseResultSchema.parse(parsed));
 }
 
 // ---------------------------------------------------------------------------

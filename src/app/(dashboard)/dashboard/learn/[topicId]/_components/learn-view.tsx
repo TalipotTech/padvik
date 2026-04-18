@@ -624,7 +624,7 @@ export function LearnView({ topicId }: { topicId: number }) {
                 </button>
               ))}
             </div>
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={toggleBookmark}>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={toggleBookmark} >
               {isBookmarked ? <BookmarkCheck className="h-4 w-4 text-violet-600" /> : <Bookmark className="h-4 w-4" />}
             </Button>
             <Separator orientation="vertical" className="h-5 mx-0.5" />
@@ -694,7 +694,7 @@ export function LearnView({ topicId }: { topicId: number }) {
                         <Badge variant="secondary" className="text-[10px]">{ci.sourceType === "ncert" ? "NCERT" : ci.sourceType === "ai_generated" ? "AI" : ci.sourceType}</Badge>
                         {ci.qualityScore ? <Badge variant="outline" className="text-[10px]">{Math.round(parseFloat(ci.qualityScore) * 100)}%</Badge> : null}
                       </div>
-                      <ContentViewToggle content={{ id: ci.id, title: ci.title, body: ci.body, contentType: ci.contentType, sourceType: ci.sourceType, sourceUrl: (ci as Record<string, unknown>).sourceUrl as string | undefined, metadata: ci.metadata ?? null }} onAskAI={(question) => { if (question) setChatInput(question); setRightPanel("chat"); }} />
+                      <ContentViewToggle content={{ id: ci.id, title: ci.title, body: ci.body, contentType: ci.contentType, sourceType: ci.sourceType, sourceUrl: (ci as Record<string, unknown>).sourceUrl as string | undefined, metadata: ci.metadata ?? null }} syncKey={topicId} onAskAI={(question) => { if (question) setChatInput(question); setRightPanel("chat"); }} />
                     </div>
                   ))}
                   {/* Videos section */}

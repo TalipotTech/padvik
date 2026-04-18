@@ -24,6 +24,37 @@ export interface SourceContext {
   boardCode?: string;
 }
 
+/**
+ * Split a long string at `limit` chars — returns the head (fits the varchar
+ * column) and the overflow (to be prepended to the description). Tries to
+ * break on the last sentence/clause boundary so titles stay readable.
+ */
+function splitForVarchar(
+  s: string,
+  limit: number
+): { head: string; overflow: string | null } {
+  if (s.length <= limit) return { head: s, overflow: null };
+  // Find a sensible break point near the limit
+  const windowStart = Math.max(0, limit - 80);
+  const window = s.slice(windowStart, limit);
+  const breakIdx = Math.max(
+    window.lastIndexOf("; "),
+    window.lastIndexOf(". "),
+    window.lastIndexOf(", "),
+    window.lastIndexOf(" — "),
+    window.lastIndexOf(" – "),
+    window.lastIndexOf(" - ")
+  );
+  const cut = breakIdx >= 0 ? windowStart + breakIdx : limit - 1;
+  return { head: s.slice(0, cut).trim(), overflow: s.slice(cut).trim() };
+}
+
+/** Fit a plain string into a varchar column by hard-truncating with ellipsis. */
+function fitVarchar(s: string, limit: number): string {
+  if (s.length <= limit) return s;
+  return s.slice(0, limit - 1).trimEnd() + "\u2026";
+}
+
 export async function insertParsedSyllabus(
   boardId: number,
   grade: number,
@@ -67,13 +98,23 @@ export async function insertParsedSyllabus(
     subjectMetadata.reviewStatus = "pending"; // Pending admin verification
   }
 
+  // Fit subject code (varchar 50) and name (varchar 255)
+  const fittedSubjectCode = fitVarchar(parsed.subjectCode, 50);
+  const fittedSubjectName = fitVarchar(parsed.subjectName, 255);
+  if (fittedSubjectCode !== parsed.subjectCode) {
+    info(`  Warning: subject code truncated to fit varchar(50): "${parsed.subjectCode}" → "${fittedSubjectCode}"`);
+  }
+  if (fittedSubjectName !== parsed.subjectName) {
+    info(`  Warning: subject name truncated to fit varchar(255): "${parsed.subjectName}" → "${fittedSubjectName}"`);
+  }
+
   // Upsert subject
   const [subject] = await db
     .insert(subjects)
     .values({
       standardId: standard.id,
-      code: parsed.subjectCode,
-      name: parsed.subjectName,
+      code: fittedSubjectCode,
+      name: fittedSubjectName,
       maxMarks: parsed.totalMarks ?? null,
       subjectType: "theory",
       isElective: false,
@@ -91,7 +132,7 @@ export async function insertParsedSyllabus(
       .select()
       .from(subjects)
       .where(
-        and(eq(subjects.standardId, standard.id), eq(subjects.code, parsed.subjectCode))
+        and(eq(subjects.standardId, standard.id), eq(subjects.code, fittedSubjectCode))
       )
       .limit(1);
     if (!existing) throw new Error("Subject insert/lookup failed");
@@ -117,13 +158,23 @@ export async function insertParsedSyllabus(
   if (source?.pdfUrl) chapterMeta.sourceUrl = source.pdfUrl;
 
   for (const ch of parsed.chapters) {
+    // Fit chapter title (varchar 500); push overflow into description (text)
+    const chSplit = splitForVarchar(ch.title, 500);
+    let chDescription = ch.description ?? null;
+    if (chSplit.overflow) {
+      info(`  Warning: chapter title overflowed varchar(500); overflow moved to description (ch ${ch.chapterNumber})`);
+      chDescription = chDescription
+        ? `${chSplit.overflow} — ${chDescription}`
+        : chSplit.overflow;
+    }
+
     const [chapter] = await db
       .insert(chapters)
       .values({
         subjectId,
         chapterNumber: ch.chapterNumber,
-        title: ch.title,
-        description: ch.description ?? null,
+        title: chSplit.head,
+        description: chDescription,
         estimatedHours: ch.estimatedHours?.toString() ?? null,
         weightagePct: ch.weightagePct?.toString() ?? null,
         sortOrder: ch.chapterNumber,
@@ -139,16 +190,29 @@ export async function insertParsedSyllabus(
 
     chaptersInserted++;
 
-    // Insert topics for this chapter
+    // Insert topics for this chapter — fit each title to varchar(500)
     if (ch.topics.length > 0) {
-      await db.insert(topics).values(
-        ch.topics.map((t) => ({
+      const topicRows = ch.topics.map((t) => {
+        const split = splitForVarchar(t.title, 500);
+        let description = t.description ?? null;
+        if (split.overflow) {
+          description = description ? `${split.overflow} — ${description}` : split.overflow;
+        }
+        return {
           chapterId: chapter.id,
-          title: t.title,
-          description: t.description ?? null,
+          title: split.head,
+          description,
           sortOrder: t.sortOrder,
-        }))
-      );
+        };
+      });
+      const overflowed = topicRows.filter((_r, i) => {
+        const orig = ch.topics[i].title;
+        return orig.length > 500;
+      }).length;
+      if (overflowed > 0) {
+        info(`  Warning: ${overflowed} topic title(s) overflowed varchar(500); overflow moved to description`);
+      }
+      await db.insert(topics).values(topicRows);
       topicsInserted += ch.topics.length;
     }
   }
