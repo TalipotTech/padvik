@@ -127,6 +127,36 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
     }
   }, [subjects, selectedSubjectId]);
 
+  // Admins/teachers don't have a personal board/grade preference the way
+  // students do — they're content curators. Seed the pickers to CBSE + 10
+  // (our canonical, most-covered scope) so the page opens to something
+  // useful instead of an empty-state dead end.
+  useEffect(() => {
+    if (!canSwitchBoard) return;
+    if (localBoardId || globalSelection.boardId) return;
+    if (!allBoards || allBoards.length === 0) return;
+    const pick =
+      (allBoards as Array<{ id: number; code: string; isActive: boolean }>)
+        .find((b) => b.isActive && b.code === "CBSE") ??
+      (allBoards as Array<{ id: number; code: string; isActive: boolean }>)
+        .find((b) => b.isActive);
+    if (pick) setLocalBoardId(pick.id);
+  }, [canSwitchBoard, localBoardId, globalSelection.boardId, allBoards]);
+
+  useEffect(() => {
+    if (!canSwitchBoard) return;
+    if (localGrade || globalSelection.grade) return;
+    if (!boardStandards || boardStandards.length === 0) return;
+    const grades = Array.from(
+      new Set(
+        (boardStandards as Array<{ grade: number }>).map((s) => s.grade)
+      )
+    ).sort((a, b) => a - b);
+    // Grade 10 is our canonical demo scope; fall back to the lowest available.
+    const pick = grades.includes(10) ? 10 : grades[0];
+    if (pick != null) setLocalGrade(pick);
+  }, [canSwitchBoard, localGrade, globalSelection.grade, boardStandards]);
+
   // Fetch topic progress when subject changes
   useEffect(() => {
     if (!selectedSubjectId) return;
@@ -295,8 +325,10 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
     });
   }
 
-  // No board selected
-  if (!boardId || !grade) {
+  // No board selected — students must pick one from their dashboard first.
+  // Admins/teachers don't hit this: the auto-seed effects above pick CBSE/10,
+  // and they can switch freely via the top-bar selectors.
+  if ((!boardId || !grade) && !canSwitchBoard) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <BookOpen className="h-12 w-12 text-muted-foreground/50 mb-4" />
@@ -405,7 +437,11 @@ export function SyllabusExplorer({ userRole = "student" }: { userRole?: string }
         <Separator orientation="vertical" className="h-5" />
 
         {/* Info */}
-        <span className="text-[10px] text-muted-foreground hidden sm:inline">{boardName} · Class {grade}</span>
+        {boardId && grade ? (
+          <span className="text-[10px] text-muted-foreground hidden sm:inline">
+            {boardName ?? ""}{boardName ? " · " : ""}Class {grade}
+          </span>
+        ) : null}
 
         {/* Open in Learn view */}
         {selectedTopicId && (
