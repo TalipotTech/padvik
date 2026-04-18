@@ -22,7 +22,7 @@
  * Rate limit: 1 request per 3 seconds (respectful to government server)
  * After download: queue for text extraction + AI parsing via existing provider
  */
-import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { eq, and, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -158,46 +158,73 @@ export const NCERT_BOOK_CATALOG: NcertBook[] = [
   { code: "hhsc1", name: "Vigyan", grade: 8, subject: "Science", subjectCode: "SCIENCE", language: "hi", chapters: 18 },
 
   // ── Class 9 ─────────────────────────────────────────────────
-  { code: "iemh1", name: "Mathematics", grade: 9, subject: "Mathematics", subjectCode: "MATHS", language: "en", chapters: 15 },
-  { code: "iesc1", name: "Science", grade: 9, subject: "Science", subjectCode: "SCIENCE", language: "en", chapters: 15 },
-  { code: "iess1", name: "Democratic Politics - I", grade: 9, subject: "Political Science", subjectCode: "POL_SCIENCE", language: "en", chapters: 6 },
+  // Note: iemh1 / iesc1 historically shipped as 15-chapter books, but the
+  // current NCERT online edition serves only ch01-ch12 at /textbook/pdf.
+  // iess1 (Democratic Politics - I) has 4 chapters in the current edition;
+  // requesting ch05-ch06 against NCERT silently returns iess3 (Geography)
+  // content, so we MUST cap the count at the true value.
+  { code: "iemh1", name: "Mathematics", grade: 9, subject: "Mathematics", subjectCode: "MATHS", language: "en", chapters: 12 },
+  { code: "iesc1", name: "Science", grade: 9, subject: "Science", subjectCode: "SCIENCE", language: "en", chapters: 12 },
+  { code: "iess1", name: "Democratic Politics - I", grade: 9, subject: "Political Science", subjectCode: "POL_SCIENCE", language: "en", chapters: 4 },
   { code: "iess2", name: "India and the Contemporary World - I", grade: 9, subject: "History", subjectCode: "HISTORY", language: "en", chapters: 5 },
   { code: "iess3", name: "Contemporary India - I (Geo)", grade: 9, subject: "Geography", subjectCode: "GEOGRAPHY", language: "en", chapters: 6 },
   { code: "iess4", name: "Economics", grade: 9, subject: "Economics", subjectCode: "ECONOMICS", language: "en", chapters: 4 },
   { code: "ieen1", name: "Beehive (English)", grade: 9, subject: "English", subjectCode: "ENGLISH", language: "en", chapters: 11 },
   { code: "ieen2", name: "Moments (Suppl.)", grade: 9, subject: "English", subjectCode: "ENGLISH_SUPP", language: "en", chapters: 10 },
-  { code: "ihmh1", name: "Ganit", grade: 9, subject: "Mathematics", subjectCode: "MATHS", language: "hi", chapters: 15 },
-  { code: "ihsc1", name: "Vigyan", grade: 9, subject: "Science", subjectCode: "SCIENCE", language: "hi", chapters: 15 },
+  { code: "ihmh1", name: "Ganit", grade: 9, subject: "Mathematics", subjectCode: "MATHS", language: "hi", chapters: 12 },
+  { code: "ihsc1", name: "Vigyan", grade: 9, subject: "Science", subjectCode: "SCIENCE", language: "hi", chapters: 12 },
 
   // ── Class 10 ────────────────────────────────────────────────
+  // IMPORTANT — the jess[1-4] book codes at /textbook/pdf are rotated vs.
+  // the legacy labels once used for this catalog. NCERT actually serves:
+  //   jess1 → Contemporary India - II (Geography, 7 ch)
+  //   jess2 → Understanding Economic Development (Economics, 5 ch)
+  //   jess3 → India and the Contemporary World - II (History, 5 ch)
+  //   jess4 → Democratic Politics - II (Political Science, 5 ch)
+  // Verified 2026-04 by inspecting AI-extracted H1 titles from each URL.
+  // NCERT_CODE_INVARIANTS must match these slugs.
   { code: "jemh1", name: "Mathematics", grade: 10, subject: "Mathematics", subjectCode: "MATHS", language: "en", chapters: 14 },
   { code: "jesc1", name: "Science", grade: 10, subject: "Science", subjectCode: "SCIENCE", language: "en", chapters: 13 },
-  { code: "jess1", name: "Democratic Politics - II", grade: 10, subject: "Political Science", subjectCode: "POL_SCIENCE", language: "en", chapters: 8 },
-  { code: "jess2", name: "India and the Contemporary World - II", grade: 10, subject: "History", subjectCode: "HISTORY", language: "en", chapters: 8 },
-  { code: "jess3", name: "Contemporary India - II (Geo)", grade: 10, subject: "Geography", subjectCode: "GEOGRAPHY", language: "en", chapters: 7 },
-  { code: "jess4", name: "Understanding Economic Development", grade: 10, subject: "Economics", subjectCode: "ECONOMICS", language: "en", chapters: 5 },
+  { code: "jess1", name: "Contemporary India - II (Geo)", grade: 10, subject: "Geography", subjectCode: "GEOGRAPHY", language: "en", chapters: 7 },
+  { code: "jess2", name: "Understanding Economic Development", grade: 10, subject: "Economics", subjectCode: "ECONOMICS", language: "en", chapters: 5 },
+  { code: "jess3", name: "India and the Contemporary World - II", grade: 10, subject: "History", subjectCode: "HISTORY", language: "en", chapters: 5 },
+  { code: "jess4", name: "Democratic Politics - II", grade: 10, subject: "Political Science", subjectCode: "POL_SCIENCE", language: "en", chapters: 5 },
   { code: "jeen1", name: "First Flight (English)", grade: 10, subject: "English", subjectCode: "ENGLISH", language: "en", chapters: 11 },
   { code: "jeen2", name: "Footprints without Feet (Suppl.)", grade: 10, subject: "English", subjectCode: "ENGLISH_SUPP", language: "en", chapters: 10 },
-  { code: "jhmh1", name: "Ganit", grade: 10, subject: "Mathematics", subjectCode: "MATHS", language: "hi", chapters: 15 },
-  { code: "jhsc1", name: "Vigyan", grade: 10, subject: "Science", subjectCode: "SCIENCE", language: "hi", chapters: 16 },
+  { code: "jhmh1", name: "Ganit", grade: 10, subject: "Mathematics", subjectCode: "MATHS", language: "hi", chapters: 14 },
+  { code: "jhsc1", name: "Vigyan", grade: 10, subject: "Science", subjectCode: "SCIENCE", language: "hi", chapters: 13 },
 
   // ── Class 11 ────────────────────────────────────────────────
   { code: "kemh1", name: "Mathematics", grade: 11, subject: "Mathematics", subjectCode: "MATHS", language: "en", chapters: 16 },
   { code: "keph1", name: "Physics Part I", grade: 11, subject: "Physics", subjectCode: "PHYSICS", language: "en", chapters: 8 },
-  { code: "keph2", name: "Physics Part II", grade: 11, subject: "Physics", subjectCode: "PHYSICS_2", language: "en", chapters: 7 },
+  { code: "keph2", name: "Physics Part II", grade: 11, subject: "Physics (Part II)", subjectCode: "PHYSICS_2", language: "en", chapters: 7 },
   { code: "kech1", name: "Chemistry Part I", grade: 11, subject: "Chemistry", subjectCode: "CHEMISTRY", language: "en", chapters: 7 },
-  { code: "kech2", name: "Chemistry Part II", grade: 11, subject: "Chemistry", subjectCode: "CHEMISTRY_2", language: "en", chapters: 7 },
+  // NEP 2023 post-rationalization: kech2 dropped from 7 → 3 real chapters (verified 2026-04)
+  { code: "kech2", name: "Chemistry Part II", grade: 11, subject: "Chemistry (Part II)", subjectCode: "CHEMISTRY_2", language: "en", chapters: 3 },
   { code: "kebo1", name: "Biology", grade: 11, subject: "Biology", subjectCode: "BIOLOGY", language: "en", chapters: 22 },
-  { code: "keac1", name: "Accountancy Part I", grade: 11, subject: "Accountancy", subjectCode: "ACCOUNTANCY", language: "en", chapters: 15 },
-  { code: "keac2", name: "Accountancy Part II", grade: 11, subject: "Accountancy", subjectCode: "ACCOUNTANCY_2", language: "en", chapters: 6 },
+  // NEP 2023 post-rationalization: keac1 15→7 real chapters, keac2 6→2 (verified 2026-04 via DB actuals)
+  { code: "keac1", name: "Accountancy Part I", grade: 11, subject: "Accountancy", subjectCode: "ACCOUNTANCY", language: "en", chapters: 7 },
+  { code: "keac2", name: "Accountancy Part II", grade: 11, subject: "Accountancy (Part II)", subjectCode: "ACCOUNTANCY_2", language: "en", chapters: 2 },
   { code: "kest1", name: "Statistics for Economics", grade: 11, subject: "Statistics", subjectCode: "STATISTICS", language: "en", chapters: 9 },
-  { code: "keec1", name: "Indian Economic Development", grade: 11, subject: "Economics", subjectCode: "ECONOMICS", language: "en", chapters: 10 },
-  { code: "kegy1", name: "Introducing Sociology", grade: 11, subject: "Sociology", subjectCode: "SOCIOLOGY", language: "en", chapters: 5 },
-  { code: "keps1", name: "Political Theory", grade: 11, subject: "Political Science", subjectCode: "POL_SCIENCE", language: "en", chapters: 10 },
-  { code: "keps2", name: "Indian Constitution at Work", grade: 11, subject: "Political Science", subjectCode: "POL_SCIENCE_2", language: "en", chapters: 10 },
-  { code: "kehs1", name: "Themes in World History", grade: 11, subject: "History", subjectCode: "HISTORY", language: "en", chapters: 11 },
+  // NEP 2023 post-rationalization: keec1 10 → 8 real chapters (verified 2026-04)
+  { code: "keec1", name: "Indian Economic Development", grade: 11, subject: "Economics", subjectCode: "ECONOMICS", language: "en", chapters: 8 },
+  // Class 11 Geography + Sociology — NCERT codes verified 2026-04 by H1 extraction.
+  //   kegy1 = "India - Physical Environment" (Geography, NOT Sociology — prior catalog was wrong)
+  //   kegy2 = "Fundamentals of Physical Geography"
+  //   kesy1 = "Introducing Sociology"
+  //   kesy2 = "Understanding Society"
+  // NCERT_CODE_INVARIANTS must match these slugs.
+  { code: "kegy1", name: "India - Physical Environment (Geo I)", grade: 11, subject: "Geography", subjectCode: "GEOGRAPHY", language: "en", chapters: 6 },
+  { code: "kegy2", name: "Fundamentals of Physical Geography", grade: 11, subject: "Geography (Part II)", subjectCode: "GEOGRAPHY_2", language: "en", chapters: 14 },
+  { code: "kesy1", name: "Introducing Sociology", grade: 11, subject: "Sociology", subjectCode: "SOCIOLOGY", language: "en", chapters: 5 },
+  { code: "kesy2", name: "Understanding Society", grade: 11, subject: "Sociology (Part II)", subjectCode: "SOCIOLOGY_2", language: "en", chapters: 5 },
+  // NEP 2023 post-rationalization: keps1 10 → 8 real chapters (verified 2026-04)
+  { code: "keps1", name: "Political Theory", grade: 11, subject: "Political Science", subjectCode: "POL_SCIENCE", language: "en", chapters: 8 },
+  { code: "keps2", name: "Indian Constitution at Work", grade: 11, subject: "Political Science (Part II)", subjectCode: "POL_SCIENCE_2", language: "en", chapters: 10 },
+  // NEP 2023 post-rationalization: kehs1 11 → 7 real chapters (verified 2026-04)
+  { code: "kehs1", name: "Themes in World History", grade: 11, subject: "History", subjectCode: "HISTORY", language: "en", chapters: 7 },
   { code: "keen1", name: "Hornbill (English Core)", grade: 11, subject: "English", subjectCode: "ENGLISH", language: "en", chapters: 8 },
-  { code: "keen2", name: "Snapshots (Suppl.)", grade: 11, subject: "English", subjectCode: "ENGLISH_SUPP", language: "en", chapters: 8 },
+  { code: "keen2", name: "Snapshots (Suppl.)", grade: 11, subject: "English (Supplementary)", subjectCode: "ENGLISH_SUPP", language: "en", chapters: 8 },
   { code: "khmh1", name: "Ganit", grade: 11, subject: "Mathematics", subjectCode: "MATHS", language: "hi", chapters: 16 },
   { code: "khph1", name: "Bhautiki Part I", grade: 11, subject: "Physics", subjectCode: "PHYSICS", language: "hi", chapters: 8 },
   { code: "khch1", name: "Rasayan Vigyan Part I", grade: 11, subject: "Chemistry", subjectCode: "CHEMISTRY", language: "hi", chapters: 7 },
@@ -205,30 +232,232 @@ export const NCERT_BOOK_CATALOG: NcertBook[] = [
 
   // ── Class 12 ────────────────────────────────────────────────
   { code: "lemh1", name: "Mathematics Part I", grade: 12, subject: "Mathematics", subjectCode: "MATHS", language: "en", chapters: 6 },
-  { code: "lemh2", name: "Mathematics Part II", grade: 12, subject: "Mathematics", subjectCode: "MATHS_2", language: "en", chapters: 7 },
+  { code: "lemh2", name: "Mathematics Part II", grade: 12, subject: "Mathematics (Part II)", subjectCode: "MATHS_2", language: "en", chapters: 7 },
   { code: "leph1", name: "Physics Part I", grade: 12, subject: "Physics", subjectCode: "PHYSICS", language: "en", chapters: 8 },
-  { code: "leph2", name: "Physics Part II", grade: 12, subject: "Physics", subjectCode: "PHYSICS_2", language: "en", chapters: 6 },
+  { code: "leph2", name: "Physics Part II", grade: 12, subject: "Physics (Part II)", subjectCode: "PHYSICS_2", language: "en", chapters: 6 },
   { code: "lech1", name: "Chemistry Part I", grade: 12, subject: "Chemistry", subjectCode: "CHEMISTRY", language: "en", chapters: 10 },
-  { code: "lech2", name: "Chemistry Part II", grade: 12, subject: "Chemistry", subjectCode: "CHEMISTRY_2", language: "en", chapters: 6 },
-  { code: "lebo1", name: "Biology", grade: 12, subject: "Biology", subjectCode: "BIOLOGY", language: "en", chapters: 16 },
-  { code: "leac1", name: "Accountancy Part I", grade: 12, subject: "Accountancy", subjectCode: "ACCOUNTANCY", language: "en", chapters: 6 },
-  { code: "leac2", name: "Accountancy Part II", grade: 12, subject: "Accountancy", subjectCode: "ACCOUNTANCY_2", language: "en", chapters: 6 },
+  { code: "lech2", name: "Chemistry Part II", grade: 12, subject: "Chemistry (Part II)", subjectCode: "CHEMISTRY_2", language: "en", chapters: 6 },
+  // NEP 2023 post-rationalization (verified 2026-04 via DB actuals):
+  //   lebo1 16→13, leac1 6→4, leec2 6→5
+  { code: "lebo1", name: "Biology", grade: 12, subject: "Biology", subjectCode: "BIOLOGY", language: "en", chapters: 13 },
+  { code: "leac1", name: "Accountancy Part I", grade: 12, subject: "Accountancy", subjectCode: "ACCOUNTANCY", language: "en", chapters: 4 },
+  { code: "leac2", name: "Accountancy Part II", grade: 12, subject: "Accountancy (Part II)", subjectCode: "ACCOUNTANCY_2", language: "en", chapters: 6 },
   { code: "leec1", name: "Introductory Microeconomics", grade: 12, subject: "Economics", subjectCode: "ECONOMICS", language: "en", chapters: 6 },
-  { code: "leec2", name: "Introductory Macroeconomics", grade: 12, subject: "Economics", subjectCode: "ECONOMICS_2", language: "en", chapters: 6 },
-  { code: "legy1", name: "Indian Society (Sociology)", grade: 12, subject: "Sociology", subjectCode: "SOCIOLOGY", language: "en", chapters: 6 },
-  { code: "leps1", name: "Contemporary World Politics", grade: 12, subject: "Political Science", subjectCode: "POL_SCIENCE", language: "en", chapters: 9 },
-  { code: "leps2", name: "Politics in India since Independence", grade: 12, subject: "Political Science", subjectCode: "POL_SCIENCE_2", language: "en", chapters: 9 },
+  { code: "leec2", name: "Introductory Macroeconomics", grade: 12, subject: "Economics (Part II)", subjectCode: "ECONOMICS_2", language: "en", chapters: 5 },
+  // Class 12 Geography + Sociology — NCERT codes verified 2026-04 by H1 extraction.
+  //   legy1 = "Fundamentals of Human Geography" (Geography, NOT Sociology — prior catalog was wrong,
+  //           same mislabel pattern as Gr11 kegy1)
+  //   legy2 = "India - People and Economy" (Geography Part II)
+  //   lesy1 = "Indian Society" (real Sociology I)
+  //   lesy2 = "Social Change and Development in India" (Sociology II)
+  //   lebs1 = "Business Studies Part I" (Principles and Functions of Management)
+  //   lebs2 = "Business Studies Part II" (Business Finance and Marketing) — only 3 real chapters
+  //   lepy1 = "Psychology"
+  { code: "legy1", name: "Fundamentals of Human Geography", grade: 12, subject: "Geography", subjectCode: "GEOGRAPHY", language: "en", chapters: 8 },
+  { code: "legy2", name: "India - People and Economy", grade: 12, subject: "Geography (Part II)", subjectCode: "GEOGRAPHY_2", language: "en", chapters: 9 },
+  { code: "lesy1", name: "Indian Society", grade: 12, subject: "Sociology", subjectCode: "SOCIOLOGY", language: "en", chapters: 7 },
+  { code: "lesy2", name: "Social Change and Development in India", grade: 12, subject: "Sociology (Part II)", subjectCode: "SOCIOLOGY_2", language: "en", chapters: 8 },
+  { code: "lebs1", name: "Business Studies Part I (Management)", grade: 12, subject: "Business Studies", subjectCode: "BUSINESS_STUDIES", language: "en", chapters: 8 },
+  { code: "lebs2", name: "Business Studies Part II (Finance & Marketing)", grade: 12, subject: "Business Studies (Part II)", subjectCode: "BUSINESS_STUDIES_2", language: "en", chapters: 3 },
+  { code: "lepy1", name: "Psychology", grade: 12, subject: "Psychology", subjectCode: "PSYCHOLOGY", language: "en", chapters: 7 },
+  // NEP 2023 post-rationalization (verified 2026-04 via DB actuals):
+  //   leps1 9→7, leps2 9→8, lehs2 5→4, lehs3 6→4
+  { code: "leps1", name: "Contemporary World Politics", grade: 12, subject: "Political Science", subjectCode: "POL_SCIENCE", language: "en", chapters: 7 },
+  { code: "leps2", name: "Politics in India since Independence", grade: 12, subject: "Political Science (Part II)", subjectCode: "POL_SCIENCE_2", language: "en", chapters: 8 },
   { code: "lehs1", name: "Themes in Indian History - I", grade: 12, subject: "History", subjectCode: "HISTORY", language: "en", chapters: 4 },
-  { code: "lehs2", name: "Themes in Indian History - II", grade: 12, subject: "History", subjectCode: "HISTORY_2", language: "en", chapters: 5 },
-  { code: "lehs3", name: "Themes in Indian History - III", grade: 12, subject: "History", subjectCode: "HISTORY_3", language: "en", chapters: 6 },
+  { code: "lehs2", name: "Themes in Indian History - II", grade: 12, subject: "History (Part II)", subjectCode: "HISTORY_2", language: "en", chapters: 4 },
+  { code: "lehs3", name: "Themes in Indian History - III", grade: 12, subject: "History (Part III)", subjectCode: "HISTORY_3", language: "en", chapters: 4 },
   { code: "leen1", name: "Flamingo (English Core)", grade: 12, subject: "English", subjectCode: "ENGLISH", language: "en", chapters: 8 },
-  { code: "leen2", name: "Vistas (Suppl.)", grade: 12, subject: "English", subjectCode: "ENGLISH_SUPP", language: "en", chapters: 8 },
+  { code: "leen2", name: "Vistas (Suppl.)", grade: 12, subject: "English (Supplementary)", subjectCode: "ENGLISH_SUPP", language: "en", chapters: 8 },
   { code: "lhmh1", name: "Ganit Part I", grade: 12, subject: "Mathematics", subjectCode: "MATHS", language: "hi", chapters: 6 },
-  { code: "lhmh2", name: "Ganit Part II", grade: 12, subject: "Mathematics", subjectCode: "MATHS_2", language: "hi", chapters: 7 },
+  { code: "lhmh2", name: "Ganit Part II", grade: 12, subject: "Mathematics (Part II)", subjectCode: "MATHS_2", language: "hi", chapters: 7 },
   { code: "lhph1", name: "Bhautiki Part I", grade: 12, subject: "Physics", subjectCode: "PHYSICS", language: "hi", chapters: 8 },
   { code: "lhch1", name: "Rasayan Vigyan Part I", grade: 12, subject: "Chemistry", subjectCode: "CHEMISTRY", language: "hi", chapters: 10 },
   { code: "lhbo1", name: "Jeev Vigyan", grade: 12, subject: "Biology", subjectCode: "BIOLOGY", language: "hi", chapters: 16 },
 ];
+
+// ---------------------------------------------------------------------------
+// Frozen code→slug invariants — IMMUTABLE source of truth for filing paths
+// ---------------------------------------------------------------------------
+//
+// Each NCERT book code is a stable NCERT-assigned identifier (iess1, jesc1…)
+// that cannot drift without also breaking the download URL. These invariants
+// pin the directory slug for each code so that accidental edits to the
+// mutable `subject` label in NCERT_BOOK_CATALOG can never silently misfile
+// downloaded PDFs under a wrong subject directory.
+//
+// History: a prior mis-edit to NCERT_BOOK_CATALOG had swapped the `subject`
+// field between iess1–4 (Class 9 social sciences), causing a 4-cycle rotation
+// of chapter PDFs across political-science/history/geography/economics
+// directories. This table is the defensive backstop against recurrence.
+//
+// DO NOT edit a slug after files have been downloaded under it.
+// DO add a new entry when adding a new code to NCERT_BOOK_CATALOG.
+export const NCERT_CODE_INVARIANTS: Readonly<Record<string, string>> = Object.freeze({
+  // Class 1
+  aemh1: "mathematics", aeen1: "english", ahmh1: "mathematics",
+  // Class 2
+  bemh1: "mathematics", been1: "english", bhmh1: "mathematics",
+  // Class 3
+  cemh1: "mathematics", ceev1: "environmental-studies", ceen1: "english", chmh1: "mathematics",
+  // Class 4
+  demh1: "mathematics", deev1: "environmental-studies", deen1: "english", dhmh1: "mathematics",
+  // Class 5
+  eemh1: "mathematics", eeev1: "environmental-studies", eeen1: "english", ehmh1: "mathematics",
+  // Class 6
+  femh1: "mathematics", fesc1: "science", fess1: "social-science",
+  feen1: "english", feen2: "english", fhmh1: "mathematics", fhsc1: "science",
+  // Class 7
+  gemh1: "mathematics", gesc1: "science", gess1: "social-science",
+  gess2: "history", gess3: "geography", geen1: "english", geen2: "english",
+  ghmh1: "mathematics", ghsc1: "science",
+  // Class 8
+  hemh1: "mathematics", hesc1: "science", hess1: "social-science",
+  hess2: "history", hess3: "geography", heen1: "english", heen2: "english",
+  hhmh1: "mathematics", hhsc1: "science",
+  // Class 9
+  iemh1: "mathematics", iesc1: "science",
+  iess1: "political-science", iess2: "history", iess3: "geography", iess4: "economics",
+  ieen1: "english", ieen2: "english", ihmh1: "mathematics", ihsc1: "science",
+  // Class 10
+  //   jess1 = Geography (Contemporary India II),
+  //   jess2 = Economics (Understanding Economic Development),
+  //   jess3 = History (India and the Contemporary World II),
+  //   jess4 = Political Science (Democratic Politics II).
+  // These slugs MUST match what NCERT actually serves at /textbook/pdf/{code}{chapter}.pdf
+  // (verified 2026-04 by H1-heading extraction). Do not revert to the legacy label mapping.
+  jemh1: "mathematics", jesc1: "science",
+  jess1: "geography", jess2: "economics", jess3: "history", jess4: "political-science",
+  jeen1: "english", jeen2: "english", jhmh1: "mathematics", jhsc1: "science",
+  // Class 11
+  //   kegy1 = Geography ("India - Physical Environment"), kegy2 = Geography ("Fundamentals of Physical Geography")
+  //   kesy1 = Sociology ("Introducing Sociology"), kesy2 = Sociology ("Understanding Society")
+  // Verified 2026-04 by H1 extraction (prior catalog mislabeled kegy1 as Sociology).
+  kemh1: "mathematics", keph1: "physics", keph2: "physics",
+  kech1: "chemistry", kech2: "chemistry", kebo1: "biology",
+  keac1: "accountancy", keac2: "accountancy", kest1: "statistics",
+  keec1: "economics",
+  kegy1: "geography", kegy2: "geography",
+  kesy1: "sociology", kesy2: "sociology",
+  keps1: "political-science", keps2: "political-science", kehs1: "history",
+  keen1: "english", keen2: "english",
+  khmh1: "mathematics", khph1: "physics", khch1: "chemistry", khbo1: "biology",
+  // Class 12
+  //   legy1 = Geography ("Fundamentals of Human Geography"), legy2 = Geography ("India - People and Economy")
+  //   lesy1 = Sociology ("Indian Society"), lesy2 = Sociology ("Social Change and Development in India")
+  //   lebs1 + lebs2 = Business Studies
+  //   lepy1 = Psychology
+  lemh1: "mathematics", lemh2: "mathematics", leph1: "physics", leph2: "physics",
+  lech1: "chemistry", lech2: "chemistry", lebo1: "biology",
+  leac1: "accountancy", leac2: "accountancy",
+  leec1: "economics", leec2: "economics",
+  legy1: "geography", legy2: "geography",
+  lesy1: "sociology", lesy2: "sociology",
+  lebs1: "business-studies", lebs2: "business-studies",
+  lepy1: "psychology",
+  leps1: "political-science", leps2: "political-science",
+  lehs1: "history", lehs2: "history", lehs3: "history",
+  leen1: "english", leen2: "english",
+  lhmh1: "mathematics", lhmh2: "mathematics", lhph1: "physics",
+  lhch1: "chemistry", lhbo1: "biology",
+});
+
+/**
+ * Returns the canonical directory slug for a book. Always use this — never
+ * derive the slug from `book.subject` directly, since that field is mutable
+ * and a mis-edit can silently misfile PDFs under the wrong directory.
+ */
+export function getCanonicalSubjectSlug(code: string): string {
+  const slug = NCERT_CODE_INVARIANTS[code];
+  if (!slug) {
+    throw new Error(
+      `[ncert-downloader] No canonical slug invariant for book code "${code}". ` +
+        `Add an entry to NCERT_CODE_INVARIANTS before downloading.`
+    );
+  }
+  return slug;
+}
+
+/**
+ * Validates NCERT_BOOK_CATALOG against NCERT_CODE_INVARIANTS and the code's
+ * class/language letter prefix. Runs at the top of runNcertDownload and
+ * throws loudly on any drift so catalog edits can't silently misfile PDFs.
+ */
+export function validateCatalogInvariants(): void {
+  const errors: string[] = [];
+  const seenCodes = new Set<string>();
+
+  // Inverse lookup: class letter → grade, lang letter → language
+  const letterToGrade: Record<string, number> = {};
+  for (const [g, l] of Object.entries(CLASS_LETTER)) letterToGrade[l] = Number(g);
+  const letterToLang: Record<string, string> = {};
+  for (const [lang, l] of Object.entries(LANG_LETTER)) letterToLang[l] = lang;
+
+  for (const book of NCERT_BOOK_CATALOG) {
+    // Duplicate code check
+    if (seenCodes.has(book.code)) {
+      errors.push(`Duplicate code "${book.code}" in NCERT_BOOK_CATALOG`);
+      continue;
+    }
+    seenCodes.add(book.code);
+
+    // Code must have an invariant entry
+    const invariantSlug = NCERT_CODE_INVARIANTS[book.code];
+    if (!invariantSlug) {
+      errors.push(`Code "${book.code}" (${book.subject}) has no entry in NCERT_CODE_INVARIANTS`);
+      continue;
+    }
+
+    // Derive slug from current subject label and compare to invariant.
+    // Strip Part-II / Supplementary disambiguators so multi-part books (which share
+    // the same underlying subject / file-path slug) can have distinct subject names
+    // in the catalog without failing the invariant check.
+    //   "Physics (Part II)" → "Physics" → "physics"
+    //   "English (Supplementary)" → "English" → "english"
+    //   "Mathematics (Part II)" → "Mathematics" → "mathematics"
+    const cleanSubject = book.subject
+      .replace(/\s*\(Part\s+[IVX]+\)\s*/i, "")
+      .replace(/\s*\(Supplementary\)\s*/i, "")
+      .trim();
+    const derivedSlug = cleanSubject.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (derivedSlug !== invariantSlug) {
+      errors.push(
+        `Code "${book.code}": subject="${book.subject}" (cleaned "${cleanSubject}") → slug "${derivedSlug}" ` +
+          `disagrees with invariant "${invariantSlug}". ` +
+          `Either the catalog label was mis-edited or the invariant needs updating.`
+      );
+    }
+
+    // Code prefix must encode grade + language correctly
+    if (book.code.length < 2) {
+      errors.push(`Code "${book.code}" is too short to encode class+language letters`);
+      continue;
+    }
+    const classLetter = book.code[0];
+    const langLetter = book.code[1];
+    const expectedGrade = letterToGrade[classLetter];
+    const expectedLang = letterToLang[langLetter];
+    if (expectedGrade !== book.grade) {
+      errors.push(
+        `Code "${book.code}": class letter "${classLetter}" encodes grade ${expectedGrade} ` +
+          `but book.grade is ${book.grade}`
+      );
+    }
+    if (expectedLang !== book.language) {
+      errors.push(
+        `Code "${book.code}": lang letter "${langLetter}" encodes "${expectedLang}" ` +
+          `but book.language is "${book.language}"`
+      );
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(
+      `NCERT catalog invariant validation failed (${errors.length} error${errors.length === 1 ? "" : "s"}):\n  - ` +
+        errors.join("\n  - ")
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -237,6 +466,15 @@ export const NCERT_BOOK_CATALOG: NcertBook[] = [
 export interface NcertDownloadOptions {
   grades?: number[];
   subjects?: string[];
+  /**
+   * Exact NCERT book-code filter (e.g. ["keph1","keph2"]). When set, only
+   * books whose `code` is in this list are selected — `subjects` is ignored
+   * for matching. Prefer this over `subjects` when the caller already
+   * iterates book-by-book, since `subjects` matches by substring and
+   * multi-part subjects (Physics Part I + Part II) both match "Physics",
+   * making a global `maxChapters` cap silently skip the later book.
+   */
+  bookCodes?: string[];
   languages?: ("en" | "hi")[];
   jobId?: number;
   aiProvider?: AIProviderChoice;
@@ -282,6 +520,11 @@ export async function runNcertDownload(options: NcertDownloadOptions): Promise<N
   const maxChapters = options.maxChapters ?? Infinity;
 
   try {
+    // Fail fast on any catalog drift (code↔slug/grade/language invariants).
+    // Catches past-style bugs where mutable `subject` labels are edited and
+    // PDFs end up silently saved under the wrong directory.
+    validateCatalogInvariants();
+
     // Resolve CBSE board in DB
     const [board] = await db
       .select()
@@ -393,13 +636,47 @@ async function processBook(
     const chapterCode = ch.toString().padStart(2, "0");
     // Correct pattern: https://ncert.nic.in/textbook/pdf/jemh101.pdf
     const pdfUrl = `${NCERT_PDF_BASE}/${book.code}${chapterCode}.pdf`;
-    const localPath = getLocalPath(book.grade, book.subject, book.language, ch);
+    const localPath = getLocalPath(book, ch);
 
-    // Resume support: skip if already exists
-    if (options.resume && existsSync(join(process.cwd(), localPath))) {
-      log(`  Ch ${ch}: already exists, skipping`);
-      result.skipped++;
-      continue;
+    // Resume support: if PDF already exists on disk (new book-code-nested
+    // path or legacy flat path), skip the download step but STILL run the
+    // AI parse pass. parseAndStoreChapter dedupes by source_url, so
+    // already-parsed chapters are free; chapters with PDF-but-no-content
+    // get parsed.
+    if (options.resume) {
+      const existingPath = resolveExistingLocalPath(book, ch);
+      if (existingPath) {
+        const absPath = join(process.cwd(), existingPath);
+        try {
+          const pdfBuffer = readFileSync(absPath);
+          log(`  Ch ${ch}: PDF exists (${(pdfBuffer.length / 1024).toFixed(0)} KB) → ${existingPath} — skipping download`);
+          result.skipped++;
+          if (!options.downloadOnly) {
+            try {
+              await parseAndStoreChapter(
+                pdfBuffer,
+                book,
+                ch,
+                boardId,
+                pdfUrl,
+                existingPath,
+                options,
+                log
+              );
+              result.parsed++;
+            } catch (err) {
+              const errMsg = `${book.code} ch${ch}: parse failed — ${err instanceof Error ? err.message : String(err)}`;
+              log(`    Parse error: ${errMsg}`);
+              result.errors.push(errMsg);
+            }
+          }
+        } catch (err) {
+          log(`  Ch ${ch}: failed to read existing PDF — ${err instanceof Error ? err.message : String(err)}`);
+          result.failed++;
+          result.errors.push(`${book.code} ch${ch}: read existing PDF failed`);
+        }
+        continue;
+      }
     }
 
     // Rate limit
@@ -421,7 +698,7 @@ async function processBook(
     }
 
     // Save locally
-    const savedPath = savePdf(book.grade, book.subject, book.language, ch, downloadResult);
+    const savedPath = savePdf(book, ch, downloadResult);
     result.downloaded++;
     result.bytes += downloadResult.length;
     log(`    Saved (${(downloadResult.length / 1024).toFixed(0)} KB) → ${savedPath}`);
@@ -687,14 +964,50 @@ async function downloadWithRetry(url: string): Promise<Buffer | null> {
 // Local file storage (→ S3 ncert-pdfs/ in production)
 // ---------------------------------------------------------------------------
 
-function getLocalPath(grade: number, subject: string, language: string, chapter: number): string {
-  const subjectSlug = subject.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const langSuffix = language === "hi" ? "_hi" : "";
-  return `data/ncert-pdfs/${grade}/${subjectSlug}${langSuffix}/ch${chapter.toString().padStart(2, "0")}.pdf`;
+/**
+ * Canonical on-disk path for a given NCERT chapter PDF.
+ *
+ * Newer scheme (preferred): nests by book code so Part I / Part II books
+ * sharing the same subject slug (e.g. keph1 + keph2 both under "physics")
+ * do not collide on `chXX.pdf`.
+ *
+ *   data/ncert-pdfs/{grade}/{subjectSlug}{langSuffix}/{bookCode}/chXX.pdf
+ *
+ * Legacy scheme (back-compat): single-part books downloaded before this
+ * change live at the flat path:
+ *
+ *   data/ncert-pdfs/{grade}/{subjectSlug}{langSuffix}/chXX.pdf
+ *
+ * Callers that need to check "does the PDF already exist on disk" should
+ * prefer getLocalPath (the new path) but fall back to getLegacyLocalPath.
+ */
+function getLocalPath(book: NcertBook, chapter: number): string {
+  const subjectSlug = getCanonicalSubjectSlug(book.code);
+  const langSuffix = book.language === "hi" ? "_hi" : "";
+  return `data/ncert-pdfs/${book.grade}/${subjectSlug}${langSuffix}/${book.code}/ch${chapter.toString().padStart(2, "0")}.pdf`;
 }
 
-function savePdf(grade: number, subject: string, language: string, chapter: number, buffer: Buffer): string {
-  const relativePath = getLocalPath(grade, subject, language, chapter);
+function getLegacyLocalPath(book: NcertBook, chapter: number): string {
+  const subjectSlug = getCanonicalSubjectSlug(book.code);
+  const langSuffix = book.language === "hi" ? "_hi" : "";
+  return `data/ncert-pdfs/${book.grade}/${subjectSlug}${langSuffix}/ch${chapter.toString().padStart(2, "0")}.pdf`;
+}
+
+/**
+ * Resolve the existing on-disk path for a chapter, preferring the new
+ * book-code-nested layout and falling back to the legacy flat layout.
+ * Returns null if neither exists.
+ */
+function resolveExistingLocalPath(book: NcertBook, chapter: number): string | null {
+  const primary = getLocalPath(book, chapter);
+  if (existsSync(join(process.cwd(), primary))) return primary;
+  const legacy = getLegacyLocalPath(book, chapter);
+  if (existsSync(join(process.cwd(), legacy))) return legacy;
+  return null;
+}
+
+function savePdf(book: NcertBook, chapter: number, buffer: Buffer): string {
+  const relativePath = getLocalPath(book, chapter);
   const fullPath = join(process.cwd(), relativePath);
   const dir = join(fullPath, "..");
 
@@ -709,14 +1022,20 @@ function savePdf(grade: number, subject: string, language: string, chapter: numb
 // Catalog filtering
 // ---------------------------------------------------------------------------
 
-function filterCatalog(options: NcertDownloadOptions): NcertBook[] {
+export function filterCatalog(options: NcertDownloadOptions): NcertBook[] {
   let books = [...NCERT_BOOK_CATALOG];
 
   if (options.grades && options.grades.length > 0) {
     books = books.filter((b) => options.grades!.includes(b.grade));
   }
 
-  if (options.subjects && options.subjects.length > 0) {
+  // `bookCodes` is an exact-match filter and takes precedence over `subjects`
+  // for matching. Callers that already iterate book-by-book should pass this
+  // so multi-part subjects don't both slip through a shared `subjects` match.
+  if (options.bookCodes && options.bookCodes.length > 0) {
+    const codeSet = new Set(options.bookCodes);
+    books = books.filter((b) => codeSet.has(b.code));
+  } else if (options.subjects && options.subjects.length > 0) {
     const subjectLower = options.subjects.map((s) => s.toLowerCase());
     books = books.filter((b) =>
       subjectLower.some(
