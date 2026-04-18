@@ -877,6 +877,13 @@ Output in comprehensive Markdown format.`;
   const qualityScore = computeQualityScore(aiContent, text.length);
   log(`    Quality score: ${(qualityScore * 100).toFixed(0)}%`);
 
+  // Auto-approve + publish high-quality rows so student content is visible
+  // without a manual review step. Matches the behaviour of
+  // scripts/regenerate-cleared-content.ts, which does the same thing on
+  // regeneration. Anything below the 0.7 bar lands as 'pending' for an
+  // admin to look at in the review queue.
+  const autoApprove = qualityScore >= 0.7;
+
   // Insert content item
   await db.insert(contentItems).values({
     topicId: topic.id,
@@ -888,8 +895,8 @@ Output in comprehensive Markdown format.`;
     sourceUrl: pdfUrl,
     language: book.language,
     qualityScore: qualityScore.toFixed(2),
-    reviewStatus: "pending",
-    isPublished: false,
+    reviewStatus: autoApprove ? "auto_approved" : "pending",
+    isPublished: autoApprove,
     metadata: {
       scrapeJobId: options.jobId ?? null,
       ncertBookCode: book.code,
