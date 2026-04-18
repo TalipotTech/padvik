@@ -3,14 +3,24 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { PadvikLogo } from "@/components/ui/padvik-logo";
 
-const adminNavGroups = [
-  { href: "/scrape-jobs", label: "Pipeline" },
-  { href: "/admin/pipeline", label: "Overview" },
+// Primary nav — the simplified, end-to-end workflow that admins should use
+// every day. "Coverage" is the one-point Board→Grade→Subject content view
+// with a three-step ingest pipeline (bootstrap → fan-out → auto-publish).
+const primaryNav = [
+  { href: "/admin/coverage", label: "Coverage" },
   { href: "/curriculum", label: "Syllabus" },
   { href: "/question-papers", label: "Questions" },
-  { href: "/admin/content-review", label: "Review" },
   { href: "/admin/ai-providers", label: "AI Providers" },
   { href: "/admin/notification-scraper", label: "Notifications" },
+];
+
+// Legacy nav — older pipeline UIs kept around for visibility and audit, but
+// the simplified Coverage flow above is now the preferred entry point.
+// These stay one click away; the visual separator makes the distinction clear.
+const legacyNav = [
+  { href: "/scrape-jobs", label: "Scrape Jobs" },
+  { href: "/admin/pipeline", label: "Pipeline Overview" },
+  { href: "/admin/content-review", label: "Review" },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -28,13 +38,30 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <span className="font-semibold">Padvik Admin</span>
             </Link>
 
-            {/* Nav — group links */}
+            {/* Nav — primary links, then a separator, then legacy */}
             <nav className="ml-4 hidden items-center gap-1 sm:flex">
-              {adminNavGroups.map((item) => (
+              {primaryNav.map((item) => (
                 <Link
                   key={item.href}
                   href={item.href}
                   className="rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  {item.label}
+                </Link>
+              ))}
+              <span
+                className="mx-2 hidden h-4 w-px bg-border lg:inline-block"
+                aria-hidden
+              />
+              <span className="hidden text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 lg:inline">
+                Legacy
+              </span>
+              {legacyNav.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+                  title="Legacy pipeline UI — prefer /admin/coverage"
                 >
                   {item.label}
                 </Link>
@@ -56,13 +83,24 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </div>
         </div>
 
-        {/* Mobile nav */}
+        {/* Mobile nav — same split, thinner styling */}
         <div className="flex items-center gap-1 overflow-x-auto border-t px-4 py-1 sm:hidden">
-          {adminNavGroups.map((item) => (
+          {primaryNav.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className="shrink-0 rounded-md px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-muted"
+            >
+              {item.label}
+            </Link>
+          ))}
+          <span className="mx-1 h-3 w-px shrink-0 bg-border" aria-hidden />
+          {legacyNav.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground/70 hover:bg-muted"
+              title="Legacy"
             >
               {item.label}
             </Link>

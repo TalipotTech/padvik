@@ -83,11 +83,16 @@ const navItems: NavItem[] = [
   { href: "/dashboard/creator/classrooms", label: "Classrooms", icon: Users, requiresCreator: true },
   { href: "/dashboard/creator/doubts", label: "Doubt Inbox", icon: Inbox, requiresCreator: true },
 
-  // --- Admin: Content Pipeline ---
-  { href: "/scrape-jobs", label: "Scrape Jobs", icon: Upload, roles: ["admin"], section: "Content Pipeline" },
-  { href: "/admin/pipeline", label: "Pipeline Overview", icon: Activity, roles: ["admin"] },
-  { href: "/admin/content-review", label: "Content Review", icon: CheckSquare, roles: ["admin"] },
+  // --- Admin: Content (simplified pipeline) ---
+  // Coverage is the one-point admin view: Board → Grade → Subject tree with
+  // bootstrap → fan-out → auto-publish actions. Proven on CBSE 10 Math.
+  { href: "/admin/coverage", label: "Coverage", icon: Layers, roles: ["admin"], section: "Content" },
   { href: "/admin/ai-providers", label: "AI Providers", icon: Cpu, roles: ["admin"] },
+
+  // --- Admin: Legacy pipeline (kept for visibility, not the primary flow) ---
+  { href: "/scrape-jobs", label: "Scrape Jobs (legacy)", icon: Upload, roles: ["admin"], section: "Legacy Pipeline" },
+  { href: "/admin/pipeline", label: "Pipeline Overview (legacy)", icon: Activity, roles: ["admin"] },
+  { href: "/admin/content-review", label: "Content Review (legacy)", icon: CheckSquare, roles: ["admin"] },
 
   // --- Admin: Syllabus ---
   { href: "/curriculum", label: "Curriculum Explorer", icon: BookOpen, roles: ["admin"], section: "Syllabus" },
