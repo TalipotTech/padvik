@@ -24,7 +24,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { boards, standards, subjects, chapters, topics } from "@/db/schema/curriculum";
 import { contentItems } from "@/db/schema/content";
@@ -33,6 +33,11 @@ import { extractTextFromPdf } from "./parser";
 import { aiChat, aiPdfVision, isAuthError, isQuotaError, AI_MODELS } from "../ai/provider";
 import { computeQualityScore } from "../ai/quality-scorer";
 import { resolveModelWithFallbacks } from "./ai-model-resolver";
+import {
+  parseMarkdownStructure,
+  isPlaceholderChapterTitle,
+} from "./markdown-structure";
+import { DEFAULT_ACADEMIC_YEAR } from "../academic-year";
 import type { AIProviderChoice } from "../queue";
 
 // ---------------------------------------------------------------------------
@@ -484,6 +489,13 @@ export interface NcertDownloadOptions {
   downloadOnly?: boolean;
   /** Resume: skip already-downloaded files */
   resume?: boolean;
+  /**
+   * Academic year ("YYYY-YY") for the `standards` rows this run creates.
+   * Passed into findOrCreateStandard so a 2026-27 bootstrap produces a
+   * fresh standards row rather than appending to the 2025-26 one.
+   * Defaults to DEFAULT_ACADEMIC_YEAR if omitted.
+   */
+  academicYear?: string;
 }
 
 export interface NcertDownloadResult {
@@ -632,19 +644,27 @@ async function processBook(
 
   let lastRequestTime = 0;
 
+  // Every disk-write in this loop is year-scoped. Falling back to
+  // DEFAULT_ACADEMIC_YEAR when a caller omits the option keeps CLI scripts
+  // working but has the same failure mode as other year-dependent code paths
+  // here: "whatever year DEFAULT points at today."
+  const academicYear = options.academicYear ?? DEFAULT_ACADEMIC_YEAR;
+
   for (let ch = 1; ch <= maxChapters; ch++) {
     const chapterCode = ch.toString().padStart(2, "0");
     // Correct pattern: https://ncert.nic.in/textbook/pdf/jemh101.pdf
     const pdfUrl = `${NCERT_PDF_BASE}/${book.code}${chapterCode}.pdf`;
-    const localPath = getLocalPath(book, ch);
 
-    // Resume support: if PDF already exists on disk (new book-code-nested
-    // path or legacy flat path), skip the download step but STILL run the
-    // AI parse pass. parseAndStoreChapter dedupes by source_url, so
-    // already-parsed chapters are free; chapters with PDF-but-no-content
-    // get parsed.
+    // Resume support: if PDF already exists at the year-scoped path, skip
+    // the download but STILL run the AI parse pass (parseAndStoreChapter's
+    // (sourceUrl, topicId) dedup makes already-parsed chapters free). Note:
+    // resolveExistingLocalPath is intentionally year-scoped ONLY — it will
+    // NOT fall back to a legacy path from an earlier year's ingest, because
+    // that was the bug where 2026-27 Bootstrap silently reused a PDF file
+    // downloaded during the 2025-26 ingest and the metadata trail lied about
+    // which year's textbook edition the content was extracted from.
     if (options.resume) {
-      const existingPath = resolveExistingLocalPath(book, ch);
+      const existingPath = resolveExistingLocalPath(book, ch, academicYear);
       if (existingPath) {
         const absPath = join(process.cwd(), existingPath);
         try {
@@ -697,8 +717,9 @@ async function processBook(
       continue;
     }
 
-    // Save locally
-    const savedPath = savePdf(book, ch, downloadResult);
+    // Save locally, year-scoped so a 2025-26 cache can never be served as
+    // 2026-27 evidence (and vice versa).
+    const savedPath = savePdf(book, ch, downloadResult, academicYear);
     result.downloaded++;
     result.bytes += downloadResult.length;
     log(`    Saved (${(downloadResult.length / 1024).toFixed(0)} KB) → ${savedPath}`);
@@ -755,24 +776,55 @@ async function parseAndStoreChapter(
     return;
   }
 
-  // Find/create DB hierarchy: standard → subject → chapter → topic
-  const standard = await findOrCreateStandard(boardId, book.grade);
+  // Find/create DB hierarchy: standard → subject → chapter → topic.
+  // academicYear falls back to DEFAULT_ACADEMIC_YEAR when callers (e.g.
+  // admin/coverage/run bootstrap path) don't thread it yet — gives those
+  // paths a predictable target until they're updated.
+  const standard = await findOrCreateStandard(
+    boardId,
+    book.grade,
+    options.academicYear ?? DEFAULT_ACADEMIC_YEAR
+  );
   if (!standard) return;
 
   const subject = await findOrCreateSubject(standard.id, book.subjectCode, book.subject);
   const chapter = await findOrCreateChapter(subject.id, chapterNum, book, text);
-  const topic = await findOrCreateTopic(chapter.id, chapterNum);
+  // NOTE: we deliberately do NOT create a placeholder topic up front any more.
+  // Topics are created from the AI-parsed markdown's H2 headings below, so the
+  // syllabus tree shows real section names ("1.1 Introduction", "1.2 The
+  // Fundamental Theorem of Arithmetic") instead of a single "Chapter 1
+  // Content" dump. Fallback (no parseable H2s) still produces one placeholder
+  // topic — see the bottom of this function.
 
-  // Check dedup — don't re-insert if this source_url already exists
-  const [existing] = await db
-    .select({ id: contentItems.id })
-    .from(contentItems)
-    .where(eq(contentItems.sourceUrl, pdfUrl))
-    .limit(1);
-
-  if (existing) {
-    log(`    Content already exists for ${pdfUrl}, skipping insert`);
-    return;
+  // Dedup — scope to this chapter's topic tree, not a single topic. Before the
+  // topic-per-section refactor we keyed on (topicId, sourceUrl), but with
+  // multiple topics per chapter now we need to check whether ANY topic under
+  // this chapter already has a content_item from this PDF URL. This keeps the
+  // cross-year dedup correct (the same sourceUrl under 2025-26 vs 2026-27
+  // standards resolves to different chapter rows, so this check still allows
+  // both to coexist) while handling resume runs idempotently.
+  const existingTopics = await db
+    .select({ id: topics.id })
+    .from(topics)
+    .where(eq(topics.chapterId, chapter.id));
+  if (existingTopics.length > 0) {
+    const [existing] = await db
+      .select({ id: contentItems.id })
+      .from(contentItems)
+      .where(
+        and(
+          eq(contentItems.sourceUrl, pdfUrl),
+          inArray(
+            contentItems.topicId,
+            existingTopics.map((t) => t.id),
+          ),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      log(`    Content already exists under chapter ${chapter.id} / ${pdfUrl}, skipping insert`);
+      return;
+    }
   }
 
   // AI Parsing — two strategies:
@@ -884,33 +936,110 @@ Output in comprehensive Markdown format.`;
   // admin to look at in the review queue.
   const autoApprove = qualityScore >= 0.7;
 
-  // Insert content item
-  await db.insert(contentItems).values({
-    topicId: topic.id,
-    contentType: "note",
-    title: `${book.name} — Chapter ${chapterNum}`,
-    body: aiContent,
-    bodyFormat: "markdown",
-    sourceType: "ncert",
-    sourceUrl: pdfUrl,
-    language: book.language,
-    qualityScore: qualityScore.toFixed(2),
-    reviewStatus: autoApprove ? "auto_approved" : "pending",
-    isPublished: autoApprove,
-    metadata: {
-      scrapeJobId: options.jobId ?? null,
-      ncertBookCode: book.code,
-      ncertChapter: chapterNum,
-      nepName: book.nepName ?? null,
-      pdfPath,
-      aiModel: modelUsed,
-      aiTokens: tokenCount,
-      aiCostUsd: costUsd,
-      extractedTextLength: text.length,
-      usedPdfVision: usedVision,
-      importedAt: new Date().toISOString(),
-    },
-  });
+  // Parse the AI-generated markdown into H1 (chapter title) + H2 sections
+  // (topic titles). When structure is present we create one topic row PLUS one
+  // content_item row per section, so the syllabus tree shows real textbook
+  // section names and tapping a section loads only that section's notes.
+  //
+  // When structure is absent (AI emitted no H1 or no H2s — e.g. Ch 6 where
+  // vision produced escaped-underscore garbage) we fall back to the legacy
+  // single-topic/single-content shape so at least the PDF and raw aiContent
+  // survive for later cleanup. Those still show as "Chapter N" placeholders
+  // in the UI and will need a manual re-parse.
+  const structure = parseMarkdownStructure(aiContent);
+  const metadataBase = {
+    scrapeJobId: options.jobId ?? null,
+    ncertBookCode: book.code,
+    ncertChapter: chapterNum,
+    nepName: book.nepName ?? null,
+    pdfPath,
+    aiModel: modelUsed,
+    aiTokens: tokenCount,
+    aiCostUsd: costUsd,
+    extractedTextLength: text.length,
+    usedPdfVision: usedVision,
+    importedAt: new Date().toISOString(),
+  };
+
+  // Rename the chapter row from its placeholder ("Mathematics — Chapter 1")
+  // to the real textbook title ("Real Numbers"). Only do this when the row
+  // still holds a placeholder — if an admin has manually edited the title
+  // (maybe to handle an AI hallucination) we leave it alone.
+  if (structure.chapterTitle) {
+    const [currentChapter] = await db
+      .select({ title: chapters.title })
+      .from(chapters)
+      .where(eq(chapters.id, chapter.id))
+      .limit(1);
+    if (currentChapter && isPlaceholderChapterTitle(currentChapter.title)) {
+      await db
+        .update(chapters)
+        .set({ title: structure.chapterTitle })
+        .where(eq(chapters.id, chapter.id));
+      log(`    Chapter title → "${structure.chapterTitle}"`);
+    }
+  }
+
+  if (structure.sections.length > 0) {
+    // Per-section path: one topic + one content_item per H2.
+    for (const section of structure.sections) {
+      const [newTopic] = await db
+        .insert(topics)
+        .values({
+          chapterId: chapter.id,
+          title: section.title,
+          sortOrder: section.sortOrder,
+          metadata: {
+            source: "ncert",
+            h2Heading: section.title,
+          },
+        })
+        .returning({ id: topics.id });
+
+      await db.insert(contentItems).values({
+        topicId: newTopic.id,
+        contentType: "note",
+        title: section.title,
+        body: section.body,
+        bodyFormat: "markdown",
+        sourceType: "ncert",
+        sourceUrl: pdfUrl,
+        language: book.language,
+        qualityScore: qualityScore.toFixed(2),
+        reviewStatus: autoApprove ? "auto_approved" : "pending",
+        isPublished: autoApprove,
+        metadata: {
+          ...metadataBase,
+          section: section.title,
+          sectionSortOrder: section.sortOrder,
+        },
+      });
+    }
+    log(`    Inserted ${structure.sections.length} section topics + content_items`);
+  } else {
+    // Fallback: single placeholder topic holding the entire aiContent. Keeps
+    // the chapter-level PDF + content reachable even when the AI output was
+    // malformed (no H2s to split on).
+    const topic = await findOrCreateTopic(chapter.id, chapterNum);
+    await db.insert(contentItems).values({
+      topicId: topic.id,
+      contentType: "note",
+      title: structure.chapterTitle ?? `${book.name} — Chapter ${chapterNum}`,
+      body: aiContent,
+      bodyFormat: "markdown",
+      sourceType: "ncert",
+      sourceUrl: pdfUrl,
+      language: book.language,
+      qualityScore: qualityScore.toFixed(2),
+      reviewStatus: autoApprove ? "auto_approved" : "pending",
+      isPublished: autoApprove,
+      metadata: {
+        ...metadataBase,
+        structureFallback: "no_h2_sections",
+      },
+    });
+    log(`    No H2 sections found; stored full chapter under placeholder topic`);
+  }
 
   // Log to pipeline
   await logPipeline("ncert_chapter_parse", options.jobId ?? 0, "completed", {
@@ -974,47 +1103,81 @@ async function downloadWithRetry(url: string): Promise<Buffer | null> {
 /**
  * Canonical on-disk path for a given NCERT chapter PDF.
  *
- * Newer scheme (preferred): nests by book code so Part I / Part II books
- * sharing the same subject slug (e.g. keph1 + keph2 both under "physics")
- * do not collide on `chXX.pdf`.
+ * Current scheme (year-scoped):
  *
- *   data/ncert-pdfs/{grade}/{subjectSlug}{langSuffix}/{bookCode}/chXX.pdf
+ *   data/ncert-pdfs/{academicYear}/{grade}/{subjectSlug}{langSuffix}/{bookCode}/chXX.pdf
  *
- * Legacy scheme (back-compat): single-part books downloaded before this
- * change live at the flat path:
+ * Why include the academic year in the path? NCERT hosts its PDFs at
+ * year-agnostic URLs, so the bytes on disk are usually identical across
+ * sessions — but NOT always. NCERT occasionally revises textbooks, and we
+ * want a 2026-27 bootstrap to go fetch the *current* PDF rather than reuse
+ * whatever copy 2025-26 happened to cache months ago. Year-scoping the path
+ * also makes the audit trail honest: a content_items row under the 2026-27
+ * `standards` tree should point at `data/ncert-pdfs/2026-27/...`, not at a
+ * shared legacy path where you can't tell which year's ingest produced it.
  *
- *   data/ncert-pdfs/{grade}/{subjectSlug}{langSuffix}/chXX.pdf
+ * Legacy schemes (back-compat READ ONLY — never write to these):
  *
- * Callers that need to check "does the PDF already exist on disk" should
- * prefer getLocalPath (the new path) but fall back to getLegacyLocalPath.
+ *   - Book-nested w/o year:  data/ncert-pdfs/{grade}/{subjectSlug}/{bookCode}/chXX.pdf
+ *   - Flat w/o year:         data/ncert-pdfs/{grade}/{subjectSlug}/chXX.pdf
+ *
+ * Rows inserted before this migration carry `metadata.pdfPath` pointing at
+ * one of those legacy locations; /api/admin/local-pdf still serves them, so
+ * old content keeps working. New ingests always go through the year-scoped
+ * path.
  */
-function getLocalPath(book: NcertBook, chapter: number): string {
+function getLocalPath(
+  book: NcertBook,
+  chapter: number,
+  academicYear: string,
+): string {
+  const subjectSlug = getCanonicalSubjectSlug(book.code);
+  const langSuffix = book.language === "hi" ? "_hi" : "";
+  return `data/ncert-pdfs/${academicYear}/${book.grade}/${subjectSlug}${langSuffix}/${book.code}/ch${chapter.toString().padStart(2, "0")}.pdf`;
+}
+
+/**
+ * Pre-year-scoping path variants. We only LOOK here so that content_items
+ * rows inserted before this migration still have a servable file on disk —
+ * savePdf never writes to a legacy path.
+ */
+function getLegacyBookNestedPath(book: NcertBook, chapter: number): string {
   const subjectSlug = getCanonicalSubjectSlug(book.code);
   const langSuffix = book.language === "hi" ? "_hi" : "";
   return `data/ncert-pdfs/${book.grade}/${subjectSlug}${langSuffix}/${book.code}/ch${chapter.toString().padStart(2, "0")}.pdf`;
 }
 
-function getLegacyLocalPath(book: NcertBook, chapter: number): string {
+function getLegacyFlatPath(book: NcertBook, chapter: number): string {
   const subjectSlug = getCanonicalSubjectSlug(book.code);
   const langSuffix = book.language === "hi" ? "_hi" : "";
   return `data/ncert-pdfs/${book.grade}/${subjectSlug}${langSuffix}/ch${chapter.toString().padStart(2, "0")}.pdf`;
 }
 
 /**
- * Resolve the existing on-disk path for a chapter, preferring the new
- * book-code-nested layout and falling back to the legacy flat layout.
- * Returns null if neither exists.
+ * Resolve the existing on-disk path for a chapter for a SPECIFIC academic
+ * year. Only checks the year-scoped location — never falls back to a legacy
+ * path, because doing so would silently promote (say) a 2025-26-downloaded
+ * PDF into a 2026-27 ingest, which is exactly the bug this migration is
+ * fixing. Returns null if the year-scoped file is absent; the caller should
+ * then download fresh from NCERT and persist to the year-scoped location.
  */
-function resolveExistingLocalPath(book: NcertBook, chapter: number): string | null {
-  const primary = getLocalPath(book, chapter);
-  if (existsSync(join(process.cwd(), primary))) return primary;
-  const legacy = getLegacyLocalPath(book, chapter);
-  if (existsSync(join(process.cwd(), legacy))) return legacy;
+function resolveExistingLocalPath(
+  book: NcertBook,
+  chapter: number,
+  academicYear: string,
+): string | null {
+  const yearScoped = getLocalPath(book, chapter, academicYear);
+  if (existsSync(join(process.cwd(), yearScoped))) return yearScoped;
   return null;
 }
 
-function savePdf(book: NcertBook, chapter: number, buffer: Buffer): string {
-  const relativePath = getLocalPath(book, chapter);
+function savePdf(
+  book: NcertBook,
+  chapter: number,
+  buffer: Buffer,
+  academicYear: string,
+): string {
+  const relativePath = getLocalPath(book, chapter, academicYear);
   const fullPath = join(process.cwd(), relativePath);
   const dir = join(fullPath, "..");
 
@@ -1023,6 +1186,23 @@ function savePdf(book: NcertBook, chapter: number, buffer: Buffer): string {
   }
   writeFileSync(fullPath, buffer);
   return relativePath;
+}
+
+/**
+ * Read-only lookup used by /api/admin/local-pdf to serve historical
+ * content_items that were inserted under either of the legacy layouts.
+ * This keeps the Source PDF button working for pre-migration rows without
+ * letting ingest silently consume those legacy files.
+ */
+export function resolveLegacyLocalPath(
+  book: NcertBook,
+  chapter: number,
+): string | null {
+  const bookNested = getLegacyBookNestedPath(book, chapter);
+  if (existsSync(join(process.cwd(), bookNested))) return bookNested;
+  const flat = getLegacyFlatPath(book, chapter);
+  if (existsSync(join(process.cwd(), flat))) return flat;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1065,8 +1245,11 @@ export function filterCatalog(options: NcertDownloadOptions): NcertBook[] {
 // DB helpers
 // ---------------------------------------------------------------------------
 
-async function findOrCreateStandard(boardId: number, grade: number): Promise<{ id: number } | null> {
-  const academicYear = "2025-26";
+async function findOrCreateStandard(
+  boardId: number,
+  grade: number,
+  academicYear: string
+): Promise<{ id: number } | null> {
   const [existing] = await db
     .select({ id: standards.id })
     .from(standards)

@@ -34,6 +34,7 @@ import {
   type DikshaContent,
 } from "./diksha-client";
 import type { AIProviderChoice } from "../queue";
+import { DEFAULT_ACADEMIC_YEAR } from "../academic-year";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -83,6 +84,8 @@ export interface KeralaScrapeOptions {
   downloadOnly?: boolean;
   /** Use DIKSHA API to discover additional textbooks beyond the catalog */
   useDikshaDiscovery?: boolean;
+  /** Academic year ("YYYY-YY") to tag inserted standards with. */
+  academicYear?: string;
 }
 
 export interface KeralaScrapeResult {
@@ -417,8 +420,10 @@ async function processBook(
     return "skipped";
   }
 
-  // Ensure DB hierarchy
-  const standard = await findOrCreateStandard(boardId, book.grade);
+  // Ensure DB hierarchy. Pass through the job-level academicYear so new
+  // per-year catalog rows land under (boardId, grade, <year>) instead of
+  // all piling onto "2025-26" forever.
+  const standard = await findOrCreateStandard(boardId, book.grade, options.academicYear);
   if (!standard) return "failed";
 
   const subject = await findOrCreateSubject(standard.id, book.subjectCode, book.subject);
@@ -680,8 +685,17 @@ function filterCatalog(options: KeralaScrapeOptions): KeralaTextbook[] {
 // DB helpers
 // ---------------------------------------------------------------------------
 
-async function findOrCreateStandard(boardId: number, grade: number): Promise<{ id: number } | null> {
-  const academicYear = "2025-26";
+/**
+ * Find or create the `standards` row for (board, grade, academicYear). The
+ * academic year used to be hard-coded to "2025-26"; callers now supply it so
+ * we can ingest per-session textbook catalogs side-by-side without rewriting
+ * the previous year's data.
+ */
+async function findOrCreateStandard(
+  boardId: number,
+  grade: number,
+  academicYear = DEFAULT_ACADEMIC_YEAR
+): Promise<{ id: number } | null> {
   const [existing] = await db
     .select({ id: standards.id })
     .from(standards)

@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { scrapeJobs } from "@/db/schema/system";
 import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
+import { DEFAULT_ACADEMIC_YEAR, ACADEMIC_YEAR_REGEX } from "@/lib/academic-year";
 
 // ---------------------------------------------------------------------------
 // POST /api/admin/ncert/download — Trigger NCERT textbook PDF download + parse
@@ -22,6 +23,13 @@ const downloadSchema = z.object({
   maxChapters: z.number().int().min(1).max(5000).optional(),
   /** If true, only download PDFs — skip AI parsing. */
   downloadOnly: z.boolean().optional(),
+  /**
+   * Academic year ("YYYY-YY") for the standards rows this job will
+   * create. NCERT PDFs don't change between sessions, but the curriculum
+   * tree we build around them does — tagging with the current session
+   * keeps 2025-26 and 2026-27 as separate standards entries.
+   */
+  academicYear: z.string().regex(ACADEMIC_YEAR_REGEX).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -55,12 +63,16 @@ export async function POST(request: NextRequest) {
   }
 
   const { grades, subjects, languages, aiProvider, maxChapters, downloadOnly } = parsed.data;
+  const academicYear = parsed.data.academicYear ?? DEFAULT_ACADEMIC_YEAR;
 
-  // Build a stable source URL for dedup
+  // Build a stable source URL for dedup. Include the academic year so a
+  // 2026-27 bootstrap and a 2025-26 bootstrap with otherwise-identical
+  // params don't collide — they produce separate standards rows and
+  // should run concurrently during the annual rollover window.
   const gradesStr = grades?.join(",") ?? "all";
   const subjectsStr = subjects?.join(",") ?? "all";
   const langsStr = languages?.join(",") ?? "en,hi";
-  const sourceUrl = `ncert://download/${gradesStr}/${subjectsStr}/${langsStr}`;
+  const sourceUrl = `ncert://download/${gradesStr}/${subjectsStr}/${langsStr}/${academicYear}`;
 
   // Duplicate prevention
   const existingJobs = await db
@@ -102,6 +114,7 @@ export async function POST(request: NextRequest) {
         aiProvider: aiProvider ?? "auto",
         maxChapters: maxChapters ?? null,
         downloadOnly: downloadOnly ?? false,
+        academicYear,
         triggeredBy: session.user.email ?? session.user.id,
         triggeredAt: new Date().toISOString(),
       },
@@ -118,6 +131,7 @@ export async function POST(request: NextRequest) {
     aiProvider,
     maxChapters,
     downloadOnly,
+    academicYear,
   });
 
   // Store queueJobId in metadata

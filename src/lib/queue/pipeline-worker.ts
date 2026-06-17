@@ -14,6 +14,7 @@ import type {
   KeralaScrapeJobData,
   StateBoardScrapeJobData,
   ContentGenerateJobData,
+  CbseContentFillJobData,
 } from "./index";
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,7 @@ let dikshaWorker: Worker | null = null;
 let keralaWorker: Worker | null = null;
 let stateBoardWorker: Worker | null = null;
 let contentGenWorker: Worker | null = null;
+let cbseContentFillWorker: Worker | null = null;
 
 // ---------------------------------------------------------------------------
 // NCERT Download Worker
@@ -47,6 +49,7 @@ export function startNcertWorker(): Worker<NcertDownloadJobData> {
         maxChapters: job.data.maxChapters,
         downloadOnly: job.data.downloadOnly,
         resume: true,
+        academicYear: job.data.academicYear,
       });
       console.log(`[NcertWorker] Job ${job.data.jobId} done: ${result.chaptersDownloaded} chapters`);
       return result;
@@ -112,6 +115,7 @@ export function startKeralaWorker(): Worker<KeralaScrapeJobData> {
         downloadOnly: job.data.downloadOnly,
         useDikshaDiscovery: job.data.useDikshaDiscovery,
         jobId: job.data.jobId,
+        academicYear: job.data.academicYear,
       });
       console.log(`[KeralaWorker] Job ${job.data.jobId} done: ${result.booksDownloaded} books`);
       return result;
@@ -248,6 +252,42 @@ export function startContentGenWorker(): Worker<ContentGenerateJobData> {
 }
 
 // ---------------------------------------------------------------------------
+// CBSE Content Fill Worker
+// ---------------------------------------------------------------------------
+// Drives the /api/admin/content/fill-gaps flow asynchronously so the Coverage
+// page's JobStatusCard can poll it. The worker simply delegates to
+// runCbseContentFill, which streams progress into scrape_jobs as it works.
+
+export function startCbseContentFillWorker(): Worker<CbseContentFillJobData> {
+  if (cbseContentFillWorker) return cbseContentFillWorker as Worker<CbseContentFillJobData>;
+
+  cbseContentFillWorker = new Worker<CbseContentFillJobData>(
+    "cbse-content-fill",
+    async (job: Job<CbseContentFillJobData>) => {
+      console.log(`[CbseContentFillWorker] Processing job ${job.data.jobId} (subject ${job.data.subjectId})`);
+      const { runCbseContentFill } = await import("../scraper/cbse-content-fill");
+      const result = await runCbseContentFill({
+        jobId: job.data.jobId,
+        subjectId: job.data.subjectId,
+        topicIds: job.data.topicIds,
+        limit: job.data.limit,
+      });
+      console.log(
+        `[CbseContentFillWorker] Job ${job.data.jobId} done: ${result.processed}/${result.topicsCandidate} topics, $${result.totalCostUsd.toFixed(4)}`
+      );
+      return result;
+    },
+    { connection: createRedisConnection(), concurrency: 1 }
+  );
+
+  cbseContentFillWorker.on("error", (err) =>
+    console.error("[CbseContentFillWorker] Error:", err.message)
+  );
+  console.log("[CbseContentFillWorker] Started");
+  return cbseContentFillWorker as Worker<CbseContentFillJobData>;
+}
+
+// ---------------------------------------------------------------------------
 // Start/Stop all pipeline workers
 // ---------------------------------------------------------------------------
 
@@ -257,15 +297,24 @@ export function startAllPipelineWorkers(): void {
   startKeralaWorker();
   startStateBoardWorker();
   startContentGenWorker();
+  startCbseContentFillWorker();
 }
 
 export async function stopAllPipelineWorkers(): Promise<void> {
-  const workers = [ncertWorker, dikshaWorker, keralaWorker, stateBoardWorker, contentGenWorker];
+  const workers = [
+    ncertWorker,
+    dikshaWorker,
+    keralaWorker,
+    stateBoardWorker,
+    contentGenWorker,
+    cbseContentFillWorker,
+  ];
   await Promise.all(workers.filter(Boolean).map((w) => w!.close()));
   ncertWorker = null;
   dikshaWorker = null;
   keralaWorker = null;
   stateBoardWorker = null;
   contentGenWorker = null;
+  cbseContentFillWorker = null;
   console.log("[PipelineWorkers] All stopped");
 }

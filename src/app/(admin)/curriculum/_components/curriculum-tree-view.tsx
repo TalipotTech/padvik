@@ -76,7 +76,7 @@ export function CurriculumTreeView({ data, search }: TreeViewProps) {
           }
 
           if (chapterMatches) {
-            keys.add(`g-${grade.grade}-${grade.stream}`);
+            keys.add(`g-${grade.grade}-${grade.stream}-${grade.academicYear}`);
             keys.add(`s-${subject.id}`);
             keys.add(`c-${chapter.id}`);
             subjectMatches = true;
@@ -84,7 +84,7 @@ export function CurriculumTreeView({ data, search }: TreeViewProps) {
         }
 
         if (subjectMatches) {
-          keys.add(`g-${grade.grade}-${grade.stream}`);
+          keys.add(`g-${grade.grade}-${grade.stream}-${grade.academicYear}`);
           keys.add(`s-${subject.id}`);
         }
       }
@@ -113,7 +113,10 @@ export function CurriculumTreeView({ data, search }: TreeViewProps) {
   return (
     <div className="space-y-0.5 rounded-lg border bg-card p-2">
       {data.grades.map((grade) => {
-        const gradeKey = `g-${grade.grade}-${grade.stream}`;
+        // Include academicYear in the expansion key — two Class 10 rows from
+        // 2025-26 and 2026-27 are distinct branches; sharing a key would
+        // toggle them in lockstep and hide the year drift from the user.
+        const gradeKey = `g-${grade.grade}-${grade.stream}-${grade.academicYear}`;
         const expected = grade.totalSubjects; // Use actual count from DB
         const parsedPct = expected > 0 ? Math.round((grade.subjectsWithChapters / expected) * 100) : 0;
         const hasMissing = grade.subjectsWithChapters < expected;
@@ -147,6 +150,11 @@ export function CurriculumTreeView({ data, search }: TreeViewProps) {
                 Class {grade.grade}
                 {grade.stream && ` — ${grade.stream}`}
               </span>
+              {/* Session chip — violet matches the scrape-jobs row so admins
+                  recognise the colour as "academic year" across the app. */}
+              <span className="rounded bg-violet-100 px-1.5 py-0.5 font-mono text-[10px] text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                {grade.academicYear}
+              </span>
               <Badge variant="outline" className="ml-auto text-[10px]">
                 {grade.subjectsWithChapters}/{expected} subjects
               </Badge>
@@ -160,7 +168,11 @@ export function CurriculumTreeView({ data, search }: TreeViewProps) {
             {isExpanded(gradeKey) && hasMissing && (
               <div className="ml-8 mb-2 space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <ScrapeGradeButton boardCode={data.board.code} grade={grade.grade} />
+                  <ScrapeGradeButton
+                    boardCode={data.board.code}
+                    grade={grade.grade}
+                    academicYear={grade.academicYear}
+                  />
                   <span className="text-[10px] text-amber-600">
                     {expected - grade.subjectsWithChapters} subjects missing chapters
                   </span>
@@ -415,9 +427,15 @@ function getModelShort(model: string): string {
 function ScrapeGradeButton({
   boardCode,
   grade,
+  academicYear,
 }: {
   boardCode: string;
   grade: number;
+  /** Session to re-scrape into. Threaded so the job runs against the same
+   * year as the standards row it was triggered from — otherwise re-scraping
+   * a missing Class-10 row from 2025-26 would accidentally target the
+   * current default session. */
+  academicYear: string;
 }) {
   const [scraping, setScraping] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -435,6 +453,7 @@ function ScrapeGradeButton({
           grades: [grade],
           maxPdfs: 20,
           aiProvider: "auto",
+          academicYear,
         }),
       });
       const data = await res.json();

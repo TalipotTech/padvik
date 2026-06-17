@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { scrapeJobs } from "@/db/schema/system";
 import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
+import { DEFAULT_ACADEMIC_YEAR, ACADEMIC_YEAR_REGEX } from "@/lib/academic-year";
 
 // ---------------------------------------------------------------------------
 // POST /api/admin/state-boards/scrape
@@ -32,6 +33,14 @@ const scrapeSchema = z.object({
   downloadOnly: z.boolean().optional(),
   /** For AP/Telangana — which board to target */
   aptsBoard: z.enum(["AP_BSEAP", "TS_BSETS", "both"]).optional(),
+  /**
+   * Academic year ("YYYY-YY"). Currently informational — the state-board
+   * scrapers don't branch on it yet — but we stamp it on every job's
+   * metadata so Job History can surface the session alongside the row,
+   * and the sourceUrl uses it so 2025-26 and 2026-27 runs don't collide
+   * in the dedup check.
+   */
+  academicYear: z.string().regex(ACADEMIC_YEAR_REGEX).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -54,6 +63,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { boardCode, grades, medium, subjectFilter, aiProvider, maxPdfs, downloadOnly, aptsBoard } = parsed.data;
+  const academicYear = parsed.data.academicYear ?? DEFAULT_ACADEMIC_YEAR;
 
   // Check if this is an NCERT-aligned board (mapping, not scraping)
   const isNCERTAligned = (NCERT_ALIGNED as readonly string[]).includes(boardCode);
@@ -70,7 +80,9 @@ export async function POST(request: NextRequest) {
   }
 
   const jobType = isNCERTAligned ? "ncert_mapping" : "state_board_scrape";
-  const sourceUrl = `state-board://${boardCode}/${grades?.join(",") ?? "all"}/${medium ?? "all"}`;
+  // Include academicYear in the dedup URL so annual-rollover runs don't
+  // collide with last session's still-queued job for the same board.
+  const sourceUrl = `state-board://${boardCode}/${grades?.join(",") ?? "all"}/${medium ?? "all"}/${academicYear}`;
 
   // Duplicate prevention
   const existingJobs = await db
@@ -95,6 +107,7 @@ export async function POST(request: NextRequest) {
       subjectFilter: subjectFilter ?? null, aiProvider: aiProvider ?? "auto",
       maxPdfs: maxPdfs ?? null, downloadOnly: downloadOnly ?? false,
       aptsBoard: aptsBoard ?? null, isNCERTAligned,
+      academicYear,
       triggeredBy: session.user.email ?? session.user.id,
       triggeredAt: new Date().toISOString(),
     },
@@ -112,6 +125,7 @@ export async function POST(request: NextRequest) {
     maxPdfs,
     downloadOnly,
     board: aptsBoard,
+    academicYear,
   });
 
   await db.update(scrapeJobs).set({

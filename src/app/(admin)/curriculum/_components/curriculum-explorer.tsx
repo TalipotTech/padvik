@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { CurriculumTreeView } from "./curriculum-tree-view";
 import { CurriculumGridView } from "./curriculum-grid-view";
+import { SELECTABLE_ACADEMIC_YEARS } from "@/lib/academic-year";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,6 +69,11 @@ export interface GradeData {
   standardId: number;
   grade: number;
   stream: string | null;
+  /** Session this Class-N row belongs to (e.g. "2026-27"). Populated for every
+   * row since standards.academic_year is NOT NULL; the tree/grid views show
+   * it next to the grade so sibling Class 10s from different sessions don't
+   * visually merge. */
+  academicYear: string;
   totalSubjects: number;
   subjectsWithChapters: number;
   totalChapters: number;
@@ -77,6 +83,11 @@ export interface GradeData {
 
 interface ExplorerData {
   board: { id: number; code: string; name: string };
+  /** The year filter the API actually applied (null = all years). */
+  academicYear: string | null;
+  /** Distinct academic years this board has standards for, newest first.
+   * Feeds the dropdown so admins only see sessions with actual data. */
+  availableAcademicYears: string[];
   grades: GradeData[];
   totals: {
     grades: number;
@@ -87,11 +98,18 @@ interface ExplorerData {
   };
 }
 
-const BOARDS = [
-  { code: "CBSE", label: "CBSE" },
-  { code: "ICSE", label: "ICSE" },
-  { code: "KL_SCERT", label: "Kerala SCERT" },
-];
+// Board dropdown is sourced from /api/boards (all active boards in the DB)
+// rather than a hardcoded list, so newly-activated Indian boards surface
+// automatically across the admin surface.
+interface BoardOption {
+  code: string;
+  label: string;
+}
+interface DbBoardRow {
+  id: number;
+  code: string;
+  name: string;
+}
 
 /**
  * Get the "expected" count for a grade — uses the ACTUAL total subjects in DB
@@ -107,18 +125,46 @@ export function getExpectedSubjects(_boardCode: string, _grade: number, gradeDat
 // Main Component
 // ---------------------------------------------------------------------------
 export function CurriculumExplorer() {
+  const [boards, setBoards] = useState<BoardOption[]>([]);
   const [data, setData] = useState<ExplorerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [boardCode, setBoardCode] = useState("CBSE");
   const [gradeFilter, setGradeFilter] = useState("all");
+  // "all" = don't filter by year. Seeded to "all" so the initial view shows
+  // every session's standards, letting admins see at-a-glance that last
+  // year's data is still intact when the default rolls over.
+  const [academicYearFilter, setAcademicYearFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<"tree" | "grid">("tree");
+
+  // Load boards once on mount. Fallback keeps the page functional if the API
+  // is down — CBSE will still be selectable.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/boards");
+        const json = await res.json();
+        if (cancelled) return;
+        const list: BoardOption[] = Array.isArray(json?.data)
+          ? (json.data as DbBoardRow[]).map((b) => ({ code: b.code, label: b.name }))
+          : [{ code: "CBSE", label: "CBSE" }];
+        setBoards(list);
+      } catch {
+        if (!cancelled) setBoards([{ code: "CBSE", label: "CBSE" }]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ boardCode });
       if (gradeFilter !== "all") params.set("grade", gradeFilter);
+      if (academicYearFilter !== "all") params.set("academicYear", academicYearFilter);
       const res = await fetch(`/api/admin/curriculum-explorer?${params}`);
       const json = await res.json();
       if (json.success) {
@@ -129,7 +175,7 @@ export function CurriculumExplorer() {
     } finally {
       setLoading(false);
     }
-  }, [boardCode, gradeFilter]);
+  }, [boardCode, gradeFilter, academicYearFilter]);
 
   useEffect(() => {
     fetchData();
@@ -159,7 +205,7 @@ export function CurriculumExplorer() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {BOARDS.map((b) => (
+              {boards.map((b) => (
                 <SelectItem key={b.code} value={b.code}>
                   {b.label}
                 </SelectItem>
@@ -179,6 +225,29 @@ export function CurriculumExplorer() {
               {Array.from({ length: 12 }, (_, i) => (
                 <SelectItem key={i + 1} value={String(i + 1)}>
                   Class {i + 1}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Academic-year picker. Prefer the server-reported availableAcademicYears
+            so the dropdown only offers sessions with data; fall back to the
+            canonical SELECTABLE list before the first fetch completes. */}
+        <div className="space-y-1.5">
+          <Label className="text-xs">Academic Year</Label>
+          <Select value={academicYearFilter} onValueChange={setAcademicYearFilter}>
+            <SelectTrigger className="w-[150px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Years</SelectItem>
+              {(data?.availableAcademicYears && data.availableAcademicYears.length > 0
+                ? data.availableAcademicYears
+                : SELECTABLE_ACADEMIC_YEARS
+              ).map((y) => (
+                <SelectItem key={y} value={y}>
+                  {y}
                 </SelectItem>
               ))}
             </SelectContent>

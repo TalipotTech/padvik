@@ -21,6 +21,7 @@ import { boards, standards, subjects, chapters, topics } from "@/db/schema/curri
 import { contentItems } from "@/db/schema/content";
 import { scrapeJobs, contentPipelineLogs } from "@/db/schema/system";
 import { computeQualityScore } from "../ai/quality-scorer";
+import { DEFAULT_ACADEMIC_YEAR } from "../academic-year";
 import {
   DikshaClient,
   dikshaBoardToOurCode,
@@ -472,7 +473,7 @@ async function findOrCreateStandard(
   boardId: number,
   grade: number
 ): Promise<{ id: number } | null> {
-  const academicYear = "2025-26";
+  const academicYear = DEFAULT_ACADEMIC_YEAR;
 
   const [existing] = await db
     .select({ id: standards.id })

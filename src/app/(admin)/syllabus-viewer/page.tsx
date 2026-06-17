@@ -31,6 +31,7 @@ import {
   ChevronRight,
   Hash,
 } from "lucide-react";
+import { SELECTABLE_ACADEMIC_YEARS } from "@/lib/academic-year";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +62,10 @@ interface SubjectInfo {
   maxMarks: number | null;
   grade: number;
   stream: string | null;
+  /** Session label threaded from standards.academic_year so the info bar can
+   * distinguish the same subject across overlapping sessions (2025-26 vs
+   * 2026-27) without an extra lookup. */
+  academicYear: string;
   boardCode: string;
   boardName: string;
   reviewStatus: string;
@@ -68,6 +73,10 @@ interface SubjectInfo {
   parsedAt: string | null;
   sourcePdf: string | null;
   sourceUrl: string | null;
+  /** "ncert" (per-chapter PDFs, no subject-level text), "scraped" (legacy
+   * CBSE scraper with a subject-level PDF), or null (no provenance). Drives
+   * the NCERT badge + the empty-state copy on the raw-text panel. */
+  sourceType: string | null;
   scrapeJobId: number | null;
 }
 
@@ -85,13 +94,23 @@ interface SubjectSummary {
   chaptersCount: number;
   topicsCount: number;
   sourcePdf: string | null;
+  /** "ncert" when the NCERT downloader created this subject (per-chapter
+   * PDFs, no subject-level rawText), otherwise the legacy scraper string
+   * or null. Used to show an "NCERT" tag on the tab so admins know why
+   * the raw-text panel is empty for those rows. */
+  sourceType: string | null;
   reviewStatus: string | null;
+  /** Hoisted onto each subject when flattening so the tab row can show a
+   * session chip — two "Mathematics" tabs for the same board+grade must be
+   * visually distinct when 2025-26 and 2026-27 coexist. */
+  academicYear: string;
 }
 
 interface GradeSummary {
   grade: number;
   stream: string | null;
-  subjects: SubjectSummary[];
+  academicYear: string;
+  subjects: Array<Omit<SubjectSummary, "academicYear">>;
 }
 
 const BOARDS = [
@@ -106,6 +125,11 @@ const BOARDS = [
 export default function SyllabusViewerPage() {
   const [boardCode, setBoardCode] = useState("CBSE");
   const [gradeFilter, setGradeFilter] = useState("10");
+  // "all" = show every session side-by-side (each subject tab carries its own
+  // session chip). Picking a specific year narrows the tab row so the viewer
+  // isn't cluttered when the same subject exists under 2025-26 and 2026-27.
+  const [academicYearFilter, setAcademicYearFilter] = useState<string>("all");
+  const [availableAcademicYears, setAvailableAcademicYears] = useState<string[]>([]);
   const [grades, setGrades] = useState<GradeSummary[]>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState<number | null>(null);
   const [viewerData, setViewerData] = useState<VerifyData | null>(null);
@@ -115,20 +139,39 @@ export default function SyllabusViewerPage() {
   const [activeHighlight, setActiveHighlight] = useState("");
   const rawTextRef = useRef<HTMLPreElement>(null);
 
-  // Fetch available subjects for board+grade
+  // Fetch available subjects for board+grade+academicYear
   const fetchGrades = useCallback(async () => {
     setLoadingGrades(true);
     try {
       const params = new URLSearchParams({ boardCode });
       if (gradeFilter !== "all") params.set("grade", gradeFilter);
+      if (academicYearFilter !== "all") params.set("academicYear", academicYearFilter);
       const res = await fetch(`/api/admin/curriculum-explorer?${params}`);
       const json = await res.json();
       if (json.success) {
         setGrades(json.data.grades);
-        // Auto-select first subject with content
+        // Use the API's list of distinct years that actually have data for
+        // this board, so the dropdown only offers sessions the admin can
+        // pick (falling back to SELECTABLE_ACADEMIC_YEARS when the board
+        // has no rows yet — e.g. fresh install).
+        const years: string[] = Array.isArray(json.data.availableAcademicYears)
+          ? json.data.availableAcademicYears
+          : [];
+        setAvailableAcademicYears(
+          years.length > 0 ? years : [...SELECTABLE_ACADEMIC_YEARS]
+        );
+        // Auto-select the first subject that has parsed chapters. We gate on
+        // chaptersCount rather than sourcePdf because the NCERT pipeline
+        // doesn't write a subject-level PDF — it downloads per-chapter PDFs
+        // — so filtering on sourcePdf hid every 2026-27 NCERT subject even
+        // though they had 14 chapters ready to view.
         const firstWithContent = json.data.grades
-          .flatMap((g: GradeSummary) => g.subjects)
-          .find((s: SubjectSummary) => s.sourcePdf);
+          .flatMap((g: GradeSummary) =>
+            g.subjects
+              .filter((s) => s.chaptersCount > 0)
+              .map((s) => ({ ...s, academicYear: g.academicYear }))
+          )
+          .find((s: SubjectSummary) => s.chaptersCount > 0);
         if (firstWithContent && !selectedSubjectId) {
           setSelectedSubjectId(firstWithContent.id);
         }
@@ -138,14 +181,14 @@ export default function SyllabusViewerPage() {
     } finally {
       setLoadingGrades(false);
     }
-  }, [boardCode, gradeFilter, selectedSubjectId]);
+  }, [boardCode, gradeFilter, academicYearFilter, selectedSubjectId]);
 
   useEffect(() => {
     setSelectedSubjectId(null);
     setViewerData(null);
     fetchGrades();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardCode, gradeFilter]);
+  }, [boardCode, gradeFilter, academicYearFilter]);
 
   // Fetch viewer data for selected subject
   const fetchViewer = useCallback(async () => {
@@ -168,9 +211,23 @@ export default function SyllabusViewerPage() {
     fetchViewer();
   }, [fetchViewer]);
 
-  // All subjects flattened for the tab selector
-  const allSubjects = useMemo(
-    () => grades.flatMap((g) => g.subjects.filter((s) => s.sourcePdf)),
+  // All subjects flattened for the tab selector. We hoist the grade's
+  // academicYear onto each subject so the tab button can render a session
+  // chip — otherwise two "Mathematics" tabs (one per session) would be
+  // indistinguishable and the admin would have to guess which they're viewing.
+  //
+  // Filter gate: chaptersCount > 0 rather than sourcePdf !== null, because
+  // the NCERT downloader creates subjects with `metadata: { source: "ncert" }`
+  // (no subject-level PDF) — their PDFs live per-chapter. Gating on
+  // sourcePdf silently hid every NCERT-sourced 2026-27 subject from the tab
+  // row despite having fully parsed chapter trees.
+  const allSubjects = useMemo<SubjectSummary[]>(
+    () =>
+      grades.flatMap((g) =>
+        g.subjects
+          .filter((s) => s.chaptersCount > 0)
+          .map((s) => ({ ...s, academicYear: g.academicYear }))
+      ),
     [grades]
   );
 
@@ -208,7 +265,12 @@ export default function SyllabusViewerPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${viewerData.subject.boardCode}_Class${viewerData.subject.grade}_${viewerData.subject.code}.txt`;
+    // Include the session in the filename so the 2025-26 and 2026-27 downloads
+    // don't overwrite each other in the admin's Downloads folder.
+    const yearSuffix = viewerData.subject.academicYear
+      ? `_${viewerData.subject.academicYear}`
+      : "";
+    a.download = `${viewerData.subject.boardCode}_Class${viewerData.subject.grade}_${viewerData.subject.code}${yearSuffix}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -251,6 +313,23 @@ export default function SyllabusViewerPage() {
             </SelectContent>
           </Select>
         </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Academic Year</Label>
+          <Select value={academicYearFilter} onValueChange={setAcademicYearFilter}>
+            <SelectTrigger className="w-[150px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Sessions</SelectItem>
+              {(availableAcademicYears.length > 0
+                ? availableAcademicYears
+                : [...SELECTABLE_ACADEMIC_YEARS]
+              ).map((y) => (
+                <SelectItem key={y} value={y}>{y}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* Subject tabs */}
         {allSubjects.length > 0 && (
@@ -258,8 +337,12 @@ export default function SyllabusViewerPage() {
             <Label className="text-xs">Subject</Label>
             <div className="flex gap-1 mt-1 overflow-x-auto pb-1">
               {allSubjects.map((s) => (
+                // Key includes academicYear because the same subject.id is
+                // unique already, but when we eventually switch to a
+                // name-grouped view (collapsing both sessions under one label)
+                // the compound key will prevent React reconciliation surprises.
                 <button
-                  key={s.id}
+                  key={`${s.id}-${s.academicYear}`}
                   onClick={() => setSelectedSubjectId(s.id)}
                   className={`shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors ${
                     selectedSubjectId === s.id
@@ -268,6 +351,20 @@ export default function SyllabusViewerPage() {
                   }`}
                 >
                   {s.name}
+                  {/* Session chip — monospace violet pill matches the
+                   * convention used in the curriculum explorer, journal,
+                   * and playground so admins recognise it at a glance. */}
+                  <span className="ml-1.5 rounded bg-violet-100 px-1.5 py-0.5 font-mono text-[9px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+                    {s.academicYear}
+                  </span>
+                  {/* NCERT provenance tag. Only shown for NCERT-sourced rows
+                   * so the admin knows the raw-text panel will be empty
+                   * (NCERT PDFs are downloaded per-chapter, not per subject). */}
+                  {s.sourceType === "ncert" && (
+                    <span className="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                      NCERT
+                    </span>
+                  )}
                   <span className="ml-1 text-[10px] text-muted-foreground">
                     ({s.chaptersCount}ch)
                   </span>
@@ -330,9 +427,22 @@ export default function SyllabusViewerPage() {
                 }`}>
                   {viewerData.subject.reviewStatus}
                 </Badge>
+                {viewerData.subject.sourceType === "ncert" && (
+                  <Badge className="ml-1.5 bg-emerald-500/15 text-[10px] text-emerald-600">
+                    NCERT
+                  </Badge>
+                )}
               </div>
               <span className="text-xs text-muted-foreground">
                 {viewerData.subject.boardCode} · Class {viewerData.subject.grade}
+                {viewerData.subject.academicYear ? (
+                  <>
+                    {" · "}
+                    <span className="rounded bg-violet-100 px-1.5 py-0.5 font-mono text-[10px] text-violet-700 dark:bg-violet-950 dark:text-violet-300">
+                      {viewerData.subject.academicYear}
+                    </span>
+                  </>
+                ) : null}
               </span>
               {viewerData.subject.aiModel && (
                 <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -497,6 +607,25 @@ export default function SyllabusViewerPage() {
                         query={searchQuery}
                       />
                     </pre>
+                  ) : viewerData.subject.sourceType === "ncert" ? (
+                    // NCERT subjects download one PDF per chapter, so there's
+                    // no aggregated subject-level raw text. Point the admin
+                    // at the chapter tree (left sidebar) and let them drill
+                    // into individual chapter detail pages for raw content.
+                    <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                      <FileText className="mb-3 size-10 opacity-30" />
+                      <p className="text-sm font-medium">NCERT per-chapter content</p>
+                      <p className="mt-1 max-w-sm text-center text-xs">
+                        This subject was sourced from NCERT — each chapter has
+                        its own PDF. Use the Table of Contents on the left to
+                        open any chapter&apos;s detail view.
+                      </p>
+                      <Link href="/curriculum" className="mt-3">
+                        <Button variant="outline" size="sm" className="text-xs">
+                          Open in Curriculum Explorer
+                        </Button>
+                      </Link>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                       <FileText className="mb-3 size-10 opacity-30" />

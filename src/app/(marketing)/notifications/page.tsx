@@ -27,16 +27,45 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 interface PageProps {
-  searchParams: Promise<{ board?: string; category?: string; page?: string }>;
+  searchParams: Promise<{
+    board?: string;
+    category?: string;
+    page?: string;
+    /** Academic year filter, "YYYY-YY" (e.g. "2025-26"). Read from metadata->>'academicYear'. */
+    year?: string;
+  }>;
 }
+
+// Tight format check — rejects "2025", "garbage", or SQL injection attempts.
+// The scraper only ever writes YYYY-YY to metadata, so a match-all-else is fine.
+const YEAR_RE = /^\d{4}-\d{2}$/;
 
 export default async function PublicNotificationsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const boardFilter = params.board;
   const categoryFilter = params.category;
+  const yearFilter = params.year && YEAR_RE.test(params.year) ? params.year : undefined;
   const page = Math.max(1, Number(params.page ?? 1));
   const limit = 20;
   const offset = (page - 1) * limit;
+
+  // Build a preserve-filters href helper — used by every chip + pagination
+  // link so switching one dimension (year, board, category) doesn't blow
+  // away the others. Returns `/notifications` when all cleared.
+  const buildHref = (overrides: Record<string, string | undefined>): string => {
+    const merged: Record<string, string | undefined> = {
+      board: boardFilter,
+      category: categoryFilter,
+      year: yearFilter,
+      ...overrides,
+    };
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(merged)) {
+      if (v) qs.set(k, v);
+    }
+    const s = qs.toString();
+    return s ? `/notifications?${s}` : "/notifications";
+  };
 
   const conditions: SQL[] = [];
   if (boardFilter) {
@@ -51,6 +80,12 @@ export default async function PublicNotificationsPage({ searchParams }: PageProp
   }
   if (categoryFilter && categoryFilter in CATEGORY_LABELS) {
     conditions.push(eq(boardNotifications.category, categoryFilter));
+  }
+  if (yearFilter) {
+    // Year lives in metadata JSONB — `->>` returns the text value, which
+    // we compare as text. Using raw SQL here because Drizzle doesn't have
+    // a first-class jsonb-path helper for ->> comparisons.
+    conditions.push(sql`${boardNotifications.metadata}->>'academicYear' = ${yearFilter}`);
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -86,6 +121,24 @@ export default async function PublicNotificationsPage({ searchParams }: PageProp
     )
     .orderBy(boards.name);
 
+  // Distinct academic years across notifications. Sorted descending so the
+  // most recent session appears first — matches how people think about the
+  // current academic year. Rows without an academicYear (general circulars,
+  // pre-migration data) simply don't surface here, which is fine: the
+  // admin's implicit filter is "only show year-bound notifications".
+  const availableYearsRaw = await db.execute<{ academic_year: string }>(sql`
+    SELECT DISTINCT metadata->>'academicYear' AS academic_year
+    FROM board_notifications
+    WHERE metadata ? 'academicYear'
+    ORDER BY metadata->>'academicYear' DESC
+  `);
+  const availableYearsRows = Array.isArray(availableYearsRaw)
+    ? (availableYearsRaw as { academic_year: string }[])
+    : (availableYearsRaw as { rows?: { academic_year: string }[] }).rows ?? [];
+  const availableYears = availableYearsRows
+    .map((r) => r.academic_year)
+    .filter((y): y is string => !!y);
+
   const categories = Object.entries(CATEGORY_LABELS);
 
   return (
@@ -110,18 +163,21 @@ export default async function PublicNotificationsPage({ searchParams }: PageProp
           </p>
         </div>
 
-        {/* Filters */}
+        {/* Filters — board / category / year. Each chip preserves the
+            other two dimensions via buildHref so the admin never loses
+            their place when they click a new filter. The "All" chip
+            clears every filter at once. */}
         <div className="mt-8 flex flex-wrap items-center gap-2">
           <Link href="/notifications">
             <Badge
-              variant={!boardFilter && !categoryFilter ? "default" : "outline"}
+              variant={!boardFilter && !categoryFilter && !yearFilter ? "default" : "outline"}
               className="cursor-pointer"
             >
               All
             </Badge>
           </Link>
           {availableBoards.map((b) => (
-            <Link key={b.code} href={`/notifications?board=${b.code}`}>
+            <Link key={b.code} href={buildHref({ board: b.code, page: undefined })}>
               <Badge
                 variant={boardFilter === b.code ? "default" : "outline"}
                 className="cursor-pointer"
@@ -132,7 +188,7 @@ export default async function PublicNotificationsPage({ searchParams }: PageProp
           ))}
           <span className="mx-2 text-muted-foreground">|</span>
           {categories.map(([value, label]) => (
-            <Link key={value} href={`/notifications?category=${value}${boardFilter ? `&board=${boardFilter}` : ""}`}>
+            <Link key={value} href={buildHref({ category: value, page: undefined })}>
               <Badge
                 variant={categoryFilter === value ? "default" : "outline"}
                 className="cursor-pointer text-xs"
@@ -141,6 +197,30 @@ export default async function PublicNotificationsPage({ searchParams }: PageProp
               </Badge>
             </Link>
           ))}
+          {availableYears.length > 0 && (
+            <>
+              <span className="mx-2 text-muted-foreground">|</span>
+              {/* Year chip — clears itself when the active year is re-clicked,
+                  which is why we short-circuit to `undefined` instead of the
+                  same value. Without this the active chip would be a dead end. */}
+              {availableYears.map((y) => (
+                <Link
+                  key={y}
+                  href={buildHref({
+                    year: yearFilter === y ? undefined : y,
+                    page: undefined,
+                  })}
+                >
+                  <Badge
+                    variant={yearFilter === y ? "default" : "outline"}
+                    className="cursor-pointer text-xs"
+                  >
+                    {y}
+                  </Badge>
+                </Link>
+              ))}
+            </>
+          )}
         </div>
 
         {/* Notification list */}
@@ -170,19 +250,15 @@ export default async function PublicNotificationsPage({ searchParams }: PageProp
           ))}
         </div>
 
-        {/* Pagination */}
+        {/* Pagination — carries every active filter including year via buildHref. */}
         {notifications.length === limit && (
           <div className="mt-8 flex justify-center gap-2">
             {page > 1 && (
-              <Link
-                href={`/notifications?page=${page - 1}${boardFilter ? `&board=${boardFilter}` : ""}${categoryFilter ? `&category=${categoryFilter}` : ""}`}
-              >
+              <Link href={buildHref({ page: String(page - 1) })}>
                 <Button variant="outline" size="sm">Previous</Button>
               </Link>
             )}
-            <Link
-              href={`/notifications?page=${page + 1}${boardFilter ? `&board=${boardFilter}` : ""}${categoryFilter ? `&category=${categoryFilter}` : ""}`}
-            >
+            <Link href={buildHref({ page: String(page + 1) })}>
               <Button variant="outline" size="sm">
                 Next
                 <ChevronRight className="ml-1 size-4" />

@@ -108,9 +108,29 @@ function resolvePdfUrl(content: ContentItem): string | null {
 // If a PDF source is available, show Book | Text toggle with Book as default.
 // If no PDF, render MarkdownRenderer directly (backward compatible).
 
+/**
+ * Pick a 1-indexed PDF page from content metadata, preferring the content-item's
+ * own page (set by cbse-content-fill when the class-splitter ran) and falling
+ * back to the chapter-level sourcePdfPage (set by syllabus-inserter for the
+ * same reason). Returns `undefined` when neither is present — the viewer
+ * then opens at page 1, which is correct for single-class PDFs.
+ */
+function resolvePdfStartPage(content: ContentItem): number | undefined {
+  const m = content.metadata;
+  if (!m) return undefined;
+  const candidates = [m.pdfPage, m.sourcePdfPage];
+  for (const c of candidates) {
+    if (typeof c === "number" && Number.isFinite(c) && c >= 1) {
+      return Math.floor(c);
+    }
+  }
+  return undefined;
+}
+
 export function ContentViewToggle({ content, className, syncKey, onAskAI }: ContentViewToggleProps) {
   const pdfUrl = resolvePdfUrl(content);
   const hasPdf = !!pdfUrl;
+  const startPage = resolvePdfStartPage(content);
 
   const [view, setView] = useState<"book" | "text">(hasPdf ? "book" : "text");
 
@@ -151,7 +171,13 @@ export function ContentViewToggle({ content, className, syncKey, onAskAI }: Cont
 
       {/* Content */}
       {view === "book" ? (
-        <PdfViewer pdfUrl={pdfUrl} title={content.title} syncKey={syncKey} onAskAI={onAskAI} />
+        <PdfViewer
+          pdfUrl={pdfUrl}
+          title={content.title}
+          syncKey={syncKey}
+          startPage={startPage}
+          onAskAI={onAskAI}
+        />
       ) : (
         <MarkdownRenderer content={content.body} />
       )}

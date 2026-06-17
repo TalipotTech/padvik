@@ -22,6 +22,7 @@ import { aiChat, isAuthError, isQuotaError } from "../ai/provider";
 import { computeQualityScore } from "../ai/quality-scorer";
 import { resolveModelWithFallbacks } from "./ai-model-resolver";
 import type { AIProviderChoice } from "../queue";
+import { DEFAULT_ACADEMIC_YEAR } from "../academic-year";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -243,7 +244,7 @@ function saveLocally(grade: number, medium: string, filename: string, buffer: Bu
   return `data/tamilnadu/${grade}/${medium}/${s}`;
 }
 async function findOrCreateStandard(boardId: number, grade: number) {
-  const ay = "2025-26";
+  const ay = DEFAULT_ACADEMIC_YEAR;
   const [e] = await db.select({ id: standards.id }).from(standards).where(and(eq(standards.boardId, boardId), eq(standards.grade, grade), eq(standards.academicYear, ay))).limit(1);
   if (e) return e;
   try { const [c] = await db.insert(standards).values({ boardId, grade, academicYear: ay, isActive: true, metadata: { source: "tamilnadu_dge" } }).returning({ id: standards.id }); return c ?? null; }

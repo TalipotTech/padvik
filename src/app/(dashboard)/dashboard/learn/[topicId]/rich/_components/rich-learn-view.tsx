@@ -20,7 +20,11 @@ interface TopicData {
     id: number; title: string; description: string | null;
     chapter: { id: number; number: number; title: string };
     subject: { id: number; name: string; code: string };
-    grade: number; board: { code: string; name: string };
+    grade: number;
+    /** Session label threaded from standards.academic_year; displayed in the
+     * Rich view's breadcrumb alongside class + subject. */
+    academicYear: string;
+    board: { code: string; name: string };
   };
   content: Array<{
     id: number; title: string; body: string; contentType: string;
@@ -112,7 +116,8 @@ export function RichLearnView({ topicId }: { topicId: number }) {
       {/* Topic info */}
       <div className="mb-6">
         <div className="text-xs text-muted-foreground mb-1">
-          {topic.board.code} &middot; Class {topic.grade} &middot; {topic.subject.name} &middot; Ch {topic.chapter.number}
+          {topic.board.code} &middot; Class {topic.grade}
+          {topic.academicYear ? ` · ${topic.academicYear}` : ""} &middot; {topic.subject.name} &middot; Ch {topic.chapter.number}
         </div>
         <h1 className="text-2xl font-bold">{topic.title}</h1>
         {topic.description && (

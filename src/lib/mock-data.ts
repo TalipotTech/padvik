@@ -14,6 +14,7 @@ import type {
   TopicWithContext,
 } from "@/types/curriculum";
 import type { ContentItem } from "@/types/content";
+import { DEFAULT_ACADEMIC_YEAR } from "./academic-year";
 
 export const USE_MOCK = !process.env.NEXT_PUBLIC_API_READY;
 
@@ -95,7 +96,7 @@ export const mockStandards: Standard[] = Array.from({ length: 12 }, (_, i) => {
     boardId: 1,
     grade,
     stream: null,
-    academicYear: "2025-26",
+    academicYear: DEFAULT_ACADEMIC_YEAR,
     isActive: true,
     metadata: {},
     createdAt: new Date(now),
@@ -109,7 +110,7 @@ export const mockStandards: Standard[] = Array.from({ length: 12 }, (_, i) => {
       boardId: 1,
       grade,
       stream,
-      academicYear: "2025-26",
+      academicYear: DEFAULT_ACADEMIC_YEAR,
       isActive: true,
       metadata: {},
       createdAt: new Date(now),

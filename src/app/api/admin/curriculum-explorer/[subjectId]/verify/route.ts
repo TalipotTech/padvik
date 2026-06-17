@@ -33,7 +33,10 @@ export async function GET(
   }
 
   try {
-    // Fetch subject with standard and board info
+    // Fetch subject with standard and board info. academicYear is surfaced so
+    // the syllabus-viewer info bar can disambiguate two "Mathematics" subjects
+    // that only differ by session (e.g. CBSE Class 10 exists for 2025-26 and
+    // 2026-27 simultaneously during the rollover window).
     const [subject] = await db
       .select({
         id: subjects.id,
@@ -43,6 +46,7 @@ export async function GET(
         metadata: subjects.metadata,
         grade: standards.grade,
         stream: standards.stream,
+        academicYear: standards.academicYear,
         boardCode: boards.code,
         boardName: boards.name,
       })
@@ -80,11 +84,16 @@ export async function GET(
       });
     }
 
-    // Read the raw extracted text from local storage
+    // Read the raw extracted text from local storage. Only the CBSE legacy
+    // scraper writes `sourceText` at the subject level — NCERT content is
+    // downloaded per-chapter, so rawText stays null and the right-hand
+    // "Raw Syllabus Text" panel shows its empty state (the TOC sidebar still
+    // works fine off parsedContent).
     const meta = (subject.metadata as Record<string, unknown>) ?? {};
     const textPath = meta.sourceText as string | undefined;
     const pdfPath = meta.sourcePdf as string | undefined;
     const sourceUrl = meta.sourceUrl as string | undefined;
+    const sourceType = (meta.source as string) ?? (pdfPath ? "scraped" : null);
 
     let rawText: string | null = null;
     if (textPath) {
@@ -101,6 +110,7 @@ export async function GET(
           maxMarks: subject.maxMarks,
           grade: subject.grade,
           stream: subject.stream,
+          academicYear: subject.academicYear,
           boardCode: subject.boardCode,
           boardName: subject.boardName,
           reviewStatus: (meta.reviewStatus as string) ?? "pending",
@@ -108,6 +118,7 @@ export async function GET(
           parsedAt: meta.parsedAt ?? null,
           sourcePdf: pdfPath ?? null,
           sourceUrl: sourceUrl ?? null,
+          sourceType,
           scrapeJobId: meta.scrapeJobId ?? null,
         },
         parsedContent,

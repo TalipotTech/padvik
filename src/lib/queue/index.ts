@@ -28,6 +28,15 @@ export interface ScrapeJobData {
   aiProvider?: AIProviderChoice;
   /** When true, only re-process PDFs that failed or were skipped in a previous run */
   retrySkipped?: boolean;
+  /**
+   * Academic year for this scrape, formatted "YYYY-YY" (e.g. "2026-27").
+   * Threaded end-to-end so the scraper hits the right per-year source URL
+   * (CBSE: curriculum_YYYY.html where YYYY = end year) and the syllabus
+   * inserter tags every standard/subject/chapter/topic row with the correct
+   * academic year. Defaults are applied at the API boundary so older queue
+   * consumers don't break.
+   */
+  academicYear?: string;
 }
 
 export interface ContentJobData {
@@ -50,6 +59,14 @@ export interface NcertDownloadJobData {
   aiProvider?: AIProviderChoice;
   maxChapters?: number;
   downloadOnly?: boolean;
+  /**
+   * Academic year ("YYYY-YY") to tag the created `standards` rows with.
+   * NCERT book files are year-agnostic (Math/Science PDFs stay stable
+   * across sessions), but the curriculum tree we build from them is
+   * year-specific — a 2026-27 bootstrap should produce a new standards
+   * row rather than appending chapters onto the 2025-26 row.
+   */
+  academicYear?: string;
 }
 
 export interface ContentGenerateJobData {
@@ -78,6 +95,12 @@ export interface StateBoardScrapeJobData {
   downloadOnly?: boolean;
   /** For AP/Telangana — which board to scrape */
   board?: "AP_BSEAP" | "TS_BSETS" | "both";
+  /**
+   * Academic year ("YYYY-YY"). Currently unused by state-board scrapers
+   * (they don't call insertParsedSyllabus yet) but plumbed through now so
+   * the API + queue contract won't need another revision when they do.
+   */
+  academicYear?: string;
 }
 
 export interface NCERTMappingJobData {
@@ -96,6 +119,8 @@ export interface KeralaScrapeJobData {
   maxBooks?: number;
   downloadOnly?: boolean;
   useDikshaDiscovery?: boolean;
+  /** Academic year ("YYYY-YY") to tag inserted rows with. */
+  academicYear?: string;
 }
 
 export interface DikshaIngestJobData {
@@ -109,6 +134,29 @@ export interface DikshaIngestJobData {
 
 export interface NotificationScrapeJobData {
   boardCode?: string;
+}
+
+/**
+ * Extract topic-level content from an already-downloaded CBSE textbook PDF.
+ *
+ * Why this exists as its own queue (instead of reusing content-generate):
+ * content-generate hallucinates content from context; this one reads the
+ * real PDF that was scraped from cbseacademic.nic.in. Different I/O
+ * characteristics (PDF read per chapter, AI extraction per topic) and
+ * different failure modes (missing PDF file, unreadable text), so it gets
+ * its own queue for observability.
+ *
+ * Payload mirrors the /api/admin/content/fill-gaps POST body.
+ */
+export interface CbseContentFillJobData {
+  jobId: number;
+  subjectId: number;
+  /** Optional whitelist — if set, only these topics are processed. */
+  topicIds?: number[];
+  /** Max topics processed in one job run. Server-side enforced cap of 500. */
+  limit?: number;
+  /** Reserved — currently all outputs are notes; kept for future expansion. */
+  notes?: boolean;
 }
 
 export interface FoundationGenerateJobData {
@@ -132,6 +180,7 @@ let _contentGenQueue: Queue<ContentGenerateJobData> | null = null;
 let _ncertQueue: Queue<NcertDownloadJobData> | null = null;
 let _notificationQueue: Queue<NotificationScrapeJobData> | null = null;
 let _foundationQueue: Queue<FoundationGenerateJobData> | null = null;
+let _cbseContentFillQueue: Queue<CbseContentFillJobData> | null = null;
 
 export function getScrapeQueue(): Queue<ScrapeJobData> {
   if (!_scrapeQueue) {
@@ -406,6 +455,42 @@ export async function addFoundationJob(
     `foundation-gen-${Date.now()}`,
     data,
     { priority: 5 }
+  );
+  return job.id ?? "";
+}
+
+/**
+ * Queue for extracting topic-level content from a scraped CBSE textbook PDF.
+ * Mirrors the ncert-download queue's knobs — 1 retry (AI tokens are expensive
+ * to re-spend) with a long backoff so transient AI-provider hiccups don't
+ * double-charge us.
+ */
+export function getCbseContentFillQueue(): Queue<CbseContentFillJobData> {
+  if (!_cbseContentFillQueue) {
+    _cbseContentFillQueue = new Queue<CbseContentFillJobData>(
+      "cbse-content-fill",
+      {
+        connection: getRedisConnection(),
+        defaultJobOptions: {
+          attempts: 1,
+          backoff: { type: "exponential", delay: 10000 },
+          removeOnComplete: { count: 50 },
+          removeOnFail: { count: 100 },
+        },
+      }
+    );
+  }
+  return _cbseContentFillQueue;
+}
+
+export async function addCbseContentFillJob(
+  data: CbseContentFillJobData
+): Promise<string> {
+  const queue = getCbseContentFillQueue();
+  const job = await queue.add(
+    `cbse-content-fill-${data.subjectId}-${data.jobId}`,
+    data,
+    { priority: 2 }
   );
   return job.id ?? "";
 }

@@ -6,6 +6,7 @@ import { boards, standards, subjects, chapters, topics } from "@/db/schema/curri
 import { NCERT_BOOK_CATALOG } from "@/lib/scraper/ncert-downloader";
 import { extractTextFromPdf } from "@/lib/scraper/parser";
 import { aiChat, AI_MODELS } from "@/lib/ai/provider";
+import { DEFAULT_ACADEMIC_YEAR } from "@/lib/academic-year";
 
 /**
  * POST /api/admin/pipeline/fill-syllabus
@@ -58,7 +59,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Ensure standard exists
-    const academicYear = "2025-26";
+    const academicYear = DEFAULT_ACADEMIC_YEAR;
     let [standard] = await db.select({ id: standards.id }).from(standards)
       .where(and(eq(standards.boardId, board.id), eq(standards.grade, grade), eq(standards.academicYear, academicYear))).limit(1);
     if (!standard) {

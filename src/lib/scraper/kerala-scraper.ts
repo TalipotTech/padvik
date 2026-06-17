@@ -41,6 +41,13 @@ export interface KeralaScrapeOptions {
   aiProvider?: AIProviderChoice;
   /** Filter by medium (English or Malayalam) */
   medium?: "english" | "malayalam";
+  /**
+   * Academic year ("YYYY-YY"). Threaded into SourceContext so inserted
+   * rows land in the right year bucket. SCERT Kerala doesn't rotate URLs
+   * per year (they overwrite the same curriculum page), so the scraper
+   * can't infer the year itself — the admin UI supplies it.
+   */
+  academicYear?: string;
 }
 
 export class KeralaScraper extends BaseScraper {
@@ -226,7 +233,17 @@ export class KeralaScraper extends BaseScraper {
     );
 
     this.log("  Inserting into database...");
-    await insertParsedSyllabus(boardId, grade, parsed, (msg) => this.log(msg));
+    // SourceContext was previously not passed — every Kerala-inserted row
+    // had empty provenance. Now we thread pdfUrl + ai model + scrape job +
+    // year so the admin UI can trace a topic back to its source PDF and
+    // syllabus-inserter can pin the year.
+    await insertParsedSyllabus(boardId, grade, parsed, (msg) => this.log(msg), {
+      pdfUrl,
+      aiModel: aiResult.model,
+      scrapeJobId: options?.jobId,
+      boardCode: "KL_SCERT",
+      academicYear: options?.academicYear,
+    });
     this.log("  Done.");
 
     return true;

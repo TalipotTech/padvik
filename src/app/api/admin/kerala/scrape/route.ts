@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { scrapeJobs } from "@/db/schema/system";
 import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
+import { DEFAULT_ACADEMIC_YEAR, ACADEMIC_YEAR_REGEX } from "@/lib/academic-year";
 
 // ---------------------------------------------------------------------------
 // POST /api/admin/kerala/scrape — Trigger Kerala SCERT textbook download + parse
@@ -19,6 +20,8 @@ const scrapeSchema = z.object({
   downloadOnly: z.boolean().optional(),
   /** Use DIKSHA API to discover additional textbooks beyond the hardcoded catalog */
   useDikshaDiscovery: z.boolean().optional(),
+  /** Academic year ("YYYY-YY") to tag inserted rows with. */
+  academicYear: z.string().regex(ACADEMIC_YEAR_REGEX).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -52,6 +55,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { classStart, classEnd, medium, subjectFilter, aiProvider, maxBooks, downloadOnly, useDikshaDiscovery } = parsed.data;
+  const academicYear = parsed.data.academicYear ?? DEFAULT_ACADEMIC_YEAR;
 
   if (classEnd < classStart) {
     return NextResponse.json(
@@ -63,7 +67,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const sourceUrl = `kerala-scert://textbooks/${classStart}-${classEnd}/${medium}`;
+  // Include the academic year in the synthetic sourceUrl so duplicate
+  // detection separates "same classes, different year" jobs — 2025-26 and
+  // 2026-27 can run concurrently without colliding.
+  const sourceUrl = `kerala-scert://textbooks/${classStart}-${classEnd}/${medium}/${academicYear}`;
 
   // Duplicate prevention
   const existingJobs = await db
@@ -108,6 +115,7 @@ export async function POST(request: NextRequest) {
         maxBooks: maxBooks ?? null,
         downloadOnly: downloadOnly ?? false,
         useDikshaDiscovery: useDikshaDiscovery ?? false,
+        academicYear,
         triggeredBy: session.user.email ?? session.user.id,
         triggeredAt: new Date().toISOString(),
       },
@@ -126,6 +134,7 @@ export async function POST(request: NextRequest) {
     maxBooks,
     downloadOnly,
     useDikshaDiscovery,
+    academicYear,
   });
 
   // Store queueJobId in metadata

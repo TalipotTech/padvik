@@ -36,12 +36,20 @@ export interface SummaryFilter {
   grade?: number;
   /** Name fragment (ILIKE). Omit to include every subject. */
   subjectName?: string;
+  /**
+   * Academic year ("YYYY-YY"). Omit to include every year. When set, narrows
+   * to standards with that `academic_year` — lets admins sanity-check 2026-27
+   * rollout without 2025-26 data polluting the numbers.
+   */
+  academicYear?: string;
 }
 
 export interface SummarySubjectRow {
   boardCode: string;
   boardName: string;
   grade: number;
+  /** Academic year of the underlying standards row ("YYYY-YY"). */
+  academicYear: string;
   subjectId: number;
   subjectName: string;
   subjectCode: string;
@@ -88,6 +96,7 @@ interface Row {
   board_code: string;
   board_name: string;
   grade: number;
+  academic_year: string | null;
   subject_id: number;
   subject_name: string;
   subject_code: string;
@@ -116,6 +125,12 @@ export async function summarizeCoverage(filter: SummaryFilter = {}): Promise<Sum
   const gradeF = filter.grade ? sql`st.grade = ${filter.grade}` : sql`1=1`;
   const subjectF = filter.subjectName
     ? sql`LOWER(s.name) LIKE ${"%" + filter.subjectName.toLowerCase() + "%"}`
+    : sql`1=1`;
+  // Year filter lives on standards.academic_year. Applied at SQL so the grid
+  // totals reflect only rows for the selected year — necessary for meaningful
+  // numbers during the 2026-27 rollover when both years' standards coexist.
+  const yearF = filter.academicYear
+    ? sql`st.academic_year = ${filter.academicYear}`
     : sql`1=1`;
 
   // Student-facing passing filter — mirror of audit.ts and /api/learn/topic/[id].
@@ -152,6 +167,7 @@ export async function summarizeCoverage(filter: SummaryFilter = {}): Promise<Sum
       b.code                                              AS board_code,
       b.name                                              AS board_name,
       st.grade                                            AS grade,
+      st.academic_year                                    AS academic_year,
       s.id                                                AS subject_id,
       s.name                                              AS subject_name,
       s.code                                              AS subject_code,
@@ -190,10 +206,10 @@ export async function summarizeCoverage(filter: SummaryFilter = {}): Promise<Sum
     JOIN topics    t  ON t.chapter_id = c.id
     LEFT JOIN content_items ci ON ci.topic_id = t.id
     WHERE b.is_active = true
-      AND ${boardF} AND ${gradeF} AND ${subjectF}
-    GROUP BY b.id, b.code, b.name, st.grade, s.id, s.name, s.code
+      AND ${boardF} AND ${gradeF} AND ${subjectF} AND ${yearF}
+    GROUP BY b.id, b.code, b.name, st.grade, st.academic_year, s.id, s.name, s.code
     HAVING COUNT(DISTINCT t.id) > 0
-    ORDER BY b.code, st.grade, s.name
+    ORDER BY b.code, st.grade, st.academic_year DESC, s.name
   `;
 
   const res = await db.execute(q);
@@ -206,6 +222,9 @@ export async function summarizeCoverage(filter: SummaryFilter = {}): Promise<Sum
       boardCode: r.board_code,
       boardName: r.board_name,
       grade: Number(r.grade),
+      // Defensive fallback matches filters/route.ts: legacy rows pre-dating
+      // the NOT NULL default surface as "2025-26" rather than blank.
+      academicYear: r.academic_year ?? "2025-26",
       subjectId: Number(r.subject_id),
       subjectName: r.subject_name,
       subjectCode: r.subject_code,

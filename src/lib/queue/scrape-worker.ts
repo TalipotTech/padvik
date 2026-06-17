@@ -77,11 +77,20 @@ export function startScrapeWorker(): Worker<ScrapeJobData> {
   worker = new Worker<ScrapeJobData>(
     "scrape",
     async (job: Job<ScrapeJobData>) => {
-      const { jobId, boardCode, jobType, grades, maxPdfs, aiProvider, retrySkipped } = job.data;
+      const {
+        jobId,
+        boardCode,
+        jobType,
+        grades,
+        maxPdfs,
+        aiProvider,
+        retrySkipped,
+        academicYear,
+      } = job.data;
       const startTime = Date.now();
 
       console.log(
-        `[ScrapeWorker] Processing job ${jobId} for board ${boardCode} type ${jobType} (AI: ${aiProvider ?? "auto"})`
+        `[ScrapeWorker] Processing job ${jobId} for board ${boardCode} type ${jobType} (AI: ${aiProvider ?? "auto"}, year: ${academicYear ?? "default"})`
       );
 
       // Initialize progress on the BullMQ job
@@ -140,6 +149,10 @@ export function startScrapeWorker(): Worker<ScrapeJobData> {
             maxChapters: maxPdfs ?? 50,
             aiProvider: aiProvider ?? "auto",
             resume: true,
+            // Thread the session tag through so the created `standards` rows
+            // land under the right academic year. Defaulted downstream when
+            // undefined, so leaving it optional is fine.
+            academicYear,
           });
 
           progress.status = "completed";
@@ -162,6 +175,9 @@ export function startScrapeWorker(): Worker<ScrapeJobData> {
           aiProvider: aiProvider ?? "auto",
           processedUrls,
           retrySkipped,
+          // Only CBSE currently consumes academicYear; other scrapers accept
+          // arbitrary extra options via their own interfaces and ignore this.
+          academicYear,
         });
 
         // Final progress update

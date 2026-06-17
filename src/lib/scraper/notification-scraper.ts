@@ -93,6 +93,50 @@ async function ensureUniqueSlug(slug: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Academic-year detection
+// ---------------------------------------------------------------------------
+// Boards name syllabus/curriculum PDFs with the target session embedded in
+// the filename — CBSE uses `Curriculum_SecP1_2026-27.pdf`, Kerala uses
+// `syllabus_2025-26.pdf`, etc. Parsing that out of the URL/title lets the
+// public notifications page filter by academic year without the admin
+// having to hand-tag each row.
+//
+// Accepted forms (in order of preference):
+//   YYYY-YY   — "2025-26", "2026-27"  (canonical Indian session)
+//   YYYY-YYYY — "2025-2026"           (normalised to YYYY-YY on output)
+//   YYYY/YY   — "2025/26"             (occasional CBSE variant)
+//
+// Returns null when none of the above matches — callers treat null as
+// "unknown year" rather than guessing, so the UI can surface it honestly.
+export function detectAcademicYear(...sources: (string | null | undefined)[]): string | null {
+  for (const src of sources) {
+    if (!src) continue;
+    // YYYY-YY (exactly 2 trailing digits that match YY of YYYY+1)
+    const short = src.match(/(20\d{2})[-/](\d{2})(?!\d)/);
+    if (short) {
+      const start = parseInt(short[1], 10);
+      const end = parseInt(short[2], 10);
+      const expected = (start + 1) % 100;
+      // Sanity-check the pair — rejects random "2025-01" style release
+      // codes. The end year must be the calendar successor.
+      if (end === expected) {
+        return `${short[1]}-${short[2]}`;
+      }
+    }
+    // YYYY-YYYY → normalise to YYYY-YY
+    const full = src.match(/(20\d{2})[-/](20\d{2})/);
+    if (full) {
+      const start = parseInt(full[1], 10);
+      const end = parseInt(full[2], 10);
+      if (end === start + 1) {
+        return `${full[1]}-${full[2].slice(2)}`;
+      }
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Date parsing helpers
 // ---------------------------------------------------------------------------
 function parseIndianDate(raw: string): string {
@@ -618,6 +662,17 @@ export async function scrapeNotifications(
         generateSlug(parser.boardCode, raw.title, publishedAt)
       );
 
+      // Pull the academic year out of the filename + title + page URL.
+      // Stored in metadata (not its own column) because: (1) the field
+      // is optional on most notifications (general circulars don't bind
+      // to a specific session), and (2) board_notifications.metadata
+      // already exists as a JSONB default — no migration needed.
+      const academicYear = detectAcademicYear(
+        raw.pdfUrl,
+        raw.sourceUrl,
+        raw.title
+      );
+
       try {
         await db.insert(boardNotifications).values({
           boardId: board.id,
@@ -634,6 +689,7 @@ export async function scrapeNotifications(
           publishedAt,
           aiProcessed: !!categorization,
           rawHtml: raw.rawHtml ?? null,
+          metadata: academicYear ? { academicYear } : {},
         });
 
         totalNew++;

@@ -30,10 +30,15 @@ export async function getSubjects(
   boardId: number,
   grade: number,
   stream?: string | null,
+  academicYear?: string | null,
 ): Promise<SubjectWithChapters[]> {
   if (USE_MOCK) return getMockSubjects(boardId, grade, stream);
   const params = new URLSearchParams({ grade: String(grade) });
   if (stream) params.set("stream", stream);
+  // Threaded through so the syllabus explorer can let users pick between
+  // co-existing sessions (2025-26 vs 2026-27) instead of silently getting
+  // whichever row the API's DESC fallback picks.
+  if (academicYear) params.set("academicYear", academicYear);
   return apiFetch<SubjectWithChapters[]>(`/api/boards/${boardId}/subjects?${params}`);
 }
 

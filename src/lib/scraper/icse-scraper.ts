@@ -123,6 +123,14 @@ export interface IcseScrapeOptions {
   aiProvider?: AIProviderChoice;
   /** Restrict to sources whose label includes this substring, e.g., "ICSE 2027" or just "ISC". */
   sourceLabelFilter?: string;
+  /**
+   * Academic year ("YYYY-YY") to pin inserted rows to. When omitted, falls
+   * back to syllabus-inserter's default ("2025-26"). CISCE publishes each
+   * subject on exam-year pages (e.g. ICSE-2027 = Class X 2025-26 session),
+   * so admins may want to run this scraper once per year and pin the right
+   * session explicitly.
+   */
+  academicYear?: string;
 }
 
 export class IcseScraper extends BaseScraper {
@@ -376,9 +384,15 @@ export class IcseScraper extends BaseScraper {
       aiModel: usedModel,
       scrapeJobId: options?.jobId,
       boardCode: "ICSE",
+      // Scraper-supplied year wins over syllabus-inserter's default. When
+      // unset, inserter falls through to "2025-26" and legacy behavior is
+      // preserved. Logged below so the admin can see which year was used.
+      academicYear: options?.academicYear,
     });
     if (aiInferredAcademicYear) {
-      this.log(`  (AI inferred academicYear=${aiInferredAcademicYear}; filed under 2025-26)`);
+      this.log(
+        `  (AI inferred academicYear=${aiInferredAcademicYear}; filed under ${options?.academicYear ?? "2025-26"})`
+      );
     }
     this.log("  Done.");
 

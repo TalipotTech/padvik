@@ -48,6 +48,10 @@ export function LearnPage() {
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [examHistory, setExamHistory] = useState<ExamHistoryItem[]>([]);
+  // Session label for the header subtitle — resolved server-side so we don't
+  // have to do a second roundtrip to /api/boards/:id/standards just to print
+  // "2026-27" next to the class number.
+  const [academicYear, setAcademicYear] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -64,6 +68,7 @@ export function LearnPage() {
           setNotes(json.data.recentNotes ?? []);
           setChats(json.data.recentChats ?? []);
           setExamHistory(json.data.recentExams ?? []);
+          setAcademicYear(json.data.academicYear ?? null);
         }
       })
       .catch(() => {})
@@ -107,7 +112,11 @@ export function LearnPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold">My Learning</h1>
-          <p className="text-sm text-muted-foreground">{boardName} · Class {grade} · {subjects.length} subjects · {totalTopics} topics · {avgCompletion}% overall</p>
+          <p className="text-sm text-muted-foreground">
+            {boardName} · Class {grade}
+            {academicYear ? ` · ${academicYear}` : ""}
+            {" · "}{subjects.length} subjects · {totalTopics} topics · {avgCompletion}% overall
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <div className="relative">

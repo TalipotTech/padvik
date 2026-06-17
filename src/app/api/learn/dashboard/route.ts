@@ -224,6 +224,20 @@ export async function GET(request: NextRequest) {
     WHERE tc.user_id = ${userId} ORDER BY tc.updated_at DESC LIMIT 10
   `);
 
+  // Resolve the active academic year for this board+grade so the UI can
+  // label the dashboard with the right session. If multiple standards rows
+  // exist (annual rollover keeps last year's data), pick the newest since
+  // that's what new content is being authored against.
+  const academicYearRows = await db.execute<{ academic_year: string }>(sql`
+    SELECT academic_year FROM standards
+    WHERE board_id = ${parseInt(boardId, 10)}
+      AND grade = ${parseInt(grade, 10)}
+    ORDER BY academic_year DESC
+    LIMIT 1
+  `);
+  const academicYear =
+    academicYearRows.length > 0 ? academicYearRows[0].academic_year : null;
+
   // Exam history
   const recentExams = await db.execute<{
     attempt_id: number; title: string; total_score: string | null; max_score: string | null;
@@ -244,6 +258,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     success: true,
     data: {
+      academicYear,
       subjects: [...subjectProgress],
       recentActivity: [...recentActivity],
       recentVideos: [...recentVideos],

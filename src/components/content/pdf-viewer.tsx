@@ -21,6 +21,14 @@ interface PdfViewerProps {
    * chapter share one PDF, so the src URL alone does not change).
    */
   syncKey?: string | number;
+  /**
+   * 1-indexed page to open the PDF at. Used for combined-class CBSE PDFs
+   * (`*_Sec_*.pdf`, `*_SrSec_*.pdf`) so Class X topics don't open on the
+   * Class IX cover page. Appended as `#page=N` — the browser's built-in
+   * PDF.js viewer honours this fragment on initial load.
+   * When omitted or `< 1`, the viewer opens at page 1 (legacy behaviour).
+   */
+  startPage?: number;
   /** Callback when user asks AI — receives the question text, opens chat panel */
   onAskAI?: (question?: string) => void;
 }
@@ -30,7 +38,7 @@ interface PdfViewerProps {
  * Shows the original PDF with full fidelity — all figures, tables, and formatting preserved.
  * Text is selectable and searchable via the browser's built-in PDF.js viewer.
  */
-export function PdfViewer({ pdfUrl, className, height = "75vh", title, syncKey, onAskAI }: PdfViewerProps) {
+export function PdfViewer({ pdfUrl, className, height = "75vh", title, syncKey, startPage, onAskAI }: PdfViewerProps) {
   const [fullscreen, setFullscreen] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [askOpen, setAskOpen] = useState(false);
@@ -44,12 +52,22 @@ export function PdfViewer({ pdfUrl, className, height = "75vh", title, syncKey, 
     setLoadError(false);
   }, [pdfUrl, syncKey]);
 
-  // Append a hash that changes with syncKey so the browser reloads the
-  // iframe (and scrolls to top) whenever the user selects a new topic,
-  // even if the chapter-level PDF URL is unchanged.
-  const iframeSrc = syncKey !== undefined
-    ? `${pdfUrl}#t=${encodeURIComponent(String(syncKey))}`
-    : pdfUrl;
+  // Build the iframe hash fragment.
+  //   #page=N       — PDF.js open-parameter; jumps past the Class IX cover on
+  //                   combined-class CBSE PDFs. Omitted when startPage is
+  //                   undefined or < 1 (most NCERT files = single-class).
+  //   &t=<syncKey>  — cache-buster so switching between topics that share
+  //                   the same PDF URL remounts the iframe and resets scroll.
+  // PDF.js accepts `#page=N` or `#page=N&...` — both params if present,
+  // otherwise just the sync key, otherwise no hash.
+  const hashParts: string[] = [];
+  if (typeof startPage === "number" && startPage >= 1) {
+    hashParts.push(`page=${Math.floor(startPage)}`);
+  }
+  if (syncKey !== undefined) {
+    hashParts.push(`t=${encodeURIComponent(String(syncKey))}`);
+  }
+  const iframeSrc = hashParts.length > 0 ? `${pdfUrl}#${hashParts.join("&")}` : pdfUrl;
 
   if (loadError) {
     return (

@@ -23,6 +23,7 @@ import { aiChat, isAuthError, isQuotaError } from "../ai/provider";
 import { computeQualityScore } from "../ai/quality-scorer";
 import { resolveModelWithFallbacks } from "./ai-model-resolver";
 import type { AIProviderChoice } from "../queue";
+import { DEFAULT_ACADEMIC_YEAR } from "../academic-year";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -284,7 +285,7 @@ function saveLocally(grade: number, medium: string, filename: string, buffer: Bu
 }
 
 async function findOrCreateStandard(boardId: number, grade: number): Promise<{ id: number } | null> {
-  const ay = "2025-26";
+  const ay = DEFAULT_ACADEMIC_YEAR;
   const [e] = await db.select({ id: standards.id }).from(standards)
     .where(and(eq(standards.boardId, boardId), eq(standards.grade, grade), eq(standards.academicYear, ay))).limit(1);
   if (e) return e;

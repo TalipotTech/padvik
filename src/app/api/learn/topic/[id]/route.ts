@@ -52,6 +52,10 @@ export async function GET(
       subjectName: subjects.name,
       subjectCode: subjects.code,
       grade: standards.grade,
+      // Pull the session label alongside the class so the Playground
+      // breadcrumb can show "CBSE · Class 10 · 2026-27" — otherwise content
+      // authored for 2025-26 and 2026-27 looks identical in the UI.
+      academicYear: standards.academicYear,
       boardCode: boards.code,
       boardName: boards.name,
     })
@@ -284,6 +288,7 @@ export async function GET(
         },
         subject: { id: topic.subjectId, name: topic.subjectName, code: topic.subjectCode },
         grade: topic.grade,
+        academicYear: topic.academicYear,
         board: { code: topic.boardCode, name: topic.boardName },
       },
       content,

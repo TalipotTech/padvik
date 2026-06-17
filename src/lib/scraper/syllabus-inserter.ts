@@ -7,6 +7,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/db";
 import { standards, subjects, chapters, topics } from "@/db/schema/curriculum";
 import type { SyllabusParseResult } from "../ai/prompts/syllabus-parser";
+import { DEFAULT_ACADEMIC_YEAR } from "../academic-year";
 
 /** Source context passed from the scraper for provenance tracking */
 export interface SourceContext {
@@ -22,6 +23,22 @@ export interface SourceContext {
   scrapeJobId?: number;
   /** Board code */
   boardCode?: string;
+  /**
+   * 1-indexed page in `pdfPath` where THIS grade's section begins. Only set
+   * when the scraper ran the class-splitter on a combined-class PDF
+   * (e.g. CBSE `*_Sec_*.pdf` covering IX+X). Downstream viewers use it to
+   * open the PDF at `#page=N` so students don't see the sibling grade's
+   * cover page first.
+   */
+  sourcePdfPage?: number;
+  /**
+   * Academic year (e.g. "2026-27") that the scrape job is pinned to. When
+   * set, this OVERRIDES whatever `parsed.academicYear` the AI guessed from
+   * the PDF text — the scraper knows which per-year CBSE URL it hit, so
+   * its word is more trustworthy than model inference. A warning is logged
+   * on mismatch so we can spot models that confidently mis-read the year.
+   */
+  academicYear?: string;
 }
 
 /**
@@ -63,7 +80,17 @@ export async function insertParsedSyllabus(
   source?: SourceContext
 ): Promise<{ chaptersInserted: number; topicsInserted: number; subjectId: number }> {
   const info = (msg: string) => log?.(msg);
-  const academicYear = parsed.academicYear ?? "2025-26";
+  // Scraper-supplied year is authoritative — it's derived from the per-year
+  // CBSE URL we actually scraped, not from prose the AI read. If the AI's
+  // guess disagrees, we log it but still use the scraper's value.
+  const scraperYear = source?.academicYear;
+  const aiYear = parsed.academicYear;
+  if (scraperYear && aiYear && scraperYear !== aiYear) {
+    info(
+      `  Warning: AI extracted academicYear=${aiYear} but scraper pinned ${scraperYear}. Using ${scraperYear}.`
+    );
+  }
+  const academicYear = scraperYear ?? aiYear ?? DEFAULT_ACADEMIC_YEAR;
   const stream = parsed.stream ?? null;
 
   // Find or verify the standard exists
@@ -94,6 +121,8 @@ export async function insertParsedSyllabus(
     if (source.aiModel) subjectMetadata.aiModel = source.aiModel;
     if (source.scrapeJobId) subjectMetadata.scrapeJobId = source.scrapeJobId;
     if (source.boardCode) subjectMetadata.boardCode = source.boardCode;
+    if (source.sourcePdfPage) subjectMetadata.sourcePdfPage = source.sourcePdfPage;
+    if (source.academicYear) subjectMetadata.academicYear = source.academicYear;
     subjectMetadata.parsedAt = new Date().toISOString();
     subjectMetadata.reviewStatus = "pending"; // Pending admin verification
   }
@@ -156,6 +185,7 @@ export async function insertParsedSyllabus(
   const chapterMeta: Record<string, unknown> = {};
   if (source?.pdfPath) chapterMeta.sourcePdf = source.pdfPath;
   if (source?.pdfUrl) chapterMeta.sourceUrl = source.pdfUrl;
+  if (source?.sourcePdfPage) chapterMeta.sourcePdfPage = source.sourcePdfPage;
 
   for (const ch of parsed.chapters) {
     // Fit chapter title (varchar 500); push overflow into description (text)

@@ -2,10 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { scrapeJobs } from "@/db/schema/system";
-import { desc, eq, and, inArray } from "drizzle-orm";
+import { desc, eq, and, inArray, sql } from "drizzle-orm";
 import { z } from "zod/v4";
+import { cbseCurriculumPageUrl } from "@/lib/scraper/cbse-scraper";
+import { DEFAULT_ACADEMIC_YEAR, ACADEMIC_YEAR_REGEX } from "@/lib/academic-year";
 
-/** Board code to source URL mapping, keyed by job type */
+/**
+ * Board → job-type → source URL.
+ *
+ * CBSE syllabus is resolved per academic-year below (CBSE publishes a new
+ * curriculum_YYYY.html page every session), so the entry here is just a
+ * placeholder that signals "this job type is supported"; the real URL is
+ * computed in the POST handler via `cbseCurriculumPageUrl(academicYear)`.
+ */
 const BOARD_SOURCE_URLS: Record<string, Record<string, string>> = {
   CBSE: {
     syllabus: "https://cbseacademic.nic.in/curriculum_2026.html",
@@ -36,7 +45,20 @@ const SUPPORTED_BOARDS = Object.keys(BOARD_SOURCE_URLS);
 // ---------------------------------------------------------------------------
 // GET /api/admin/scrape-jobs — List scrape jobs
 // ---------------------------------------------------------------------------
-export async function GET() {
+// Supports optional query-param filtering so the Coverage page can ask
+// "is there a queued/running ncert_download or cbse_content_fill job for
+// subject 875 right now?" without pulling 50 unrelated rows.
+//
+//   ?status=queued,running            comma-sep subset of status values
+//   &jobType=ncert_download,cbse_content_fill
+//   &subjectId=875                    matches metadata->>'subjectId' for
+//                                     jobs that stash it (cbse_content_fill,
+//                                     ncert_download per-subject, etc.)
+//   &limit=5                          default 50, max 200
+//
+// All filters are AND'd together. Unknown/empty filters are ignored.
+// ---------------------------------------------------------------------------
+export async function GET(request: NextRequest) {
   const session = await auth();
   if (!session || session.user.role !== "admin") {
     return NextResponse.json(
@@ -45,11 +67,50 @@ export async function GET() {
     );
   }
 
-  const jobs = await db
-    .select()
-    .from(scrapeJobs)
+  const params = request.nextUrl.searchParams;
+
+  const statusParam = params.get("status");
+  const jobTypeParam = params.get("jobType");
+  const subjectIdParam = params.get("subjectId");
+  const limitParam = params.get("limit");
+
+  const allowedStatuses = new Set([
+    "queued",
+    "running",
+    "paused",
+    "completed",
+    "failed",
+    "cancelled",
+  ]);
+  const statuses = statusParam
+    ? statusParam.split(",").map((s) => s.trim()).filter((s) => allowedStatuses.has(s))
+    : [];
+  const jobTypes = jobTypeParam
+    ? jobTypeParam.split(",").map((s) => s.trim()).filter(Boolean)
+    : [];
+  const subjectId = subjectIdParam && /^\d+$/.test(subjectIdParam) ? subjectIdParam : null;
+  const limit = Math.min(
+    Math.max(1, Number(limitParam) || 50),
+    200
+  );
+
+  const conditions = [];
+  if (statuses.length > 0) conditions.push(inArray(scrapeJobs.status, statuses));
+  if (jobTypes.length > 0) conditions.push(inArray(scrapeJobs.jobType, jobTypes));
+  if (subjectId) {
+    // Stored in metadata as a number; Postgres JSONB cast → text compares
+    // literally. Works for cbse_content_fill (set by fill-gaps route) and any
+    // future per-subject job that follows the same convention.
+    conditions.push(sql`${scrapeJobs.metadata}->>'subjectId' = ${subjectId}`);
+  }
+
+  const query = db.select().from(scrapeJobs);
+  const jobs = await (conditions.length > 0
+    ? query.where(and(...conditions))
+    : query
+  )
     .orderBy(desc(scrapeJobs.createdAt))
-    .limit(50);
+    .limit(limit);
 
   return NextResponse.json({ success: true, data: jobs });
 }
@@ -64,6 +125,13 @@ const createJobSchema = z.object({
   maxPdfs: z.number().int().min(1).max(500).optional(),
   aiProvider: z.enum(["anthropic", "gemini", "mistral", "openai", "perplexity", "sarvam", "auto"]).optional(),
   retrySkipped: z.boolean().optional(),
+  /**
+   * Academic year in "YYYY-YY" form, e.g. "2026-27". Currently only applied
+   * by the CBSE syllabus job — it picks the matching curriculum_YYYY.html
+   * page and tags inserted rows with this year. Other jobs ignore it (for
+   * now). Defaults to the current session's year.
+   */
+  academicYear: z.string().regex(ACADEMIC_YEAR_REGEX).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -97,6 +165,7 @@ export async function POST(request: NextRequest) {
   }
 
   const { boardCode, jobType, grades, maxPdfs, aiProvider, retrySkipped } = parsed.data;
+  const academicYear = parsed.data.academicYear ?? DEFAULT_ACADEMIC_YEAR;
 
   // Validate board code
   if (!SUPPORTED_BOARDS.includes(boardCode)) {
@@ -129,6 +198,27 @@ export async function POST(request: NextRequest) {
 
   // For CBSE question papers, use grade-specific URL
   let sourceUrl = boardUrls[jobType];
+  // CBSE publishes a separate curriculum index page per academic year
+  // (curriculum_2026.html, curriculum_2027.html, ...). Resolve it now so
+  // the scrape_jobs row stores the actual URL that'll be hit — makes
+  // duplicate detection below year-aware too (same board+year can't have
+  // two concurrent jobs, but 2025-26 and 2026-27 can run side by side).
+  if (boardCode === "CBSE" && jobType === "syllabus") {
+    try {
+      sourceUrl = cbseCurriculumPageUrl(academicYear);
+    } catch (err) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            code: "INVALID_ACADEMIC_YEAR",
+            message: err instanceof Error ? err.message : String(err),
+          },
+        },
+        { status: 400 }
+      );
+    }
+  }
   if (boardCode === "CBSE" && jobType === "question_paper") {
     // Only Class 10 and 12 have official SQPs
     if (grades && grades.length > 0) {
@@ -188,6 +278,10 @@ export async function POST(request: NextRequest) {
         aiProvider: aiProvider ?? "auto",
         grades: grades ?? null,
         maxPdfs: maxPdfs ?? null,
+        // Stash the resolved academic year so the admin UI, audit trail,
+        // and worker-side resume logic all see the same value even if the
+        // default shifts in a later release.
+        academicYear,
         triggeredBy: session.user.email ?? session.user.id,
         triggeredAt: new Date().toISOString(),
       },
@@ -204,6 +298,7 @@ export async function POST(request: NextRequest) {
     maxPdfs,
     aiProvider,
     retrySkipped,
+    academicYear,
   });
 
   // Store queueJobId in metadata for later reference

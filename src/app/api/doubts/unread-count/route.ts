@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { doubts } from "@/db/schema/doubts";
 import { users } from "@/db/schema/auth";
-import { eq, and, or, sql, ne } from "drizzle-orm";
+import { eq, and, or, sql } from "drizzle-orm";
 
 /**
  * GET /api/doubts/unread-count — Get count of unanswered doubts
@@ -16,7 +16,16 @@ export async function GET() {
     return NextResponse.json({ success: true, data: { count: 0 } });
   }
 
+  // session.user.id is typed as string but is sometimes populated with a
+  // non-numeric demo value (DEV_BYPASS / NextAuth credential providers).
+  // All of our user.id columns are BIGINT, so a NaN here would produce a
+  // Postgres "invalid input syntax for type bigint" error on every hit.
+  // Treat a non-numeric id as "no count to report" — same outcome as an
+  // unauthenticated visitor.
   const userId = Number(session.user.id);
+  if (!Number.isFinite(userId)) {
+    return NextResponse.json({ success: true, data: { count: 0 } });
+  }
 
   // Check if user is a creator
   const [user] = await db.select({ isCreator: users.isCreator }).from(users).where(eq(users.id, userId)).limit(1);

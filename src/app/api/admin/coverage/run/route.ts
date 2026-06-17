@@ -32,14 +32,35 @@ const runSchema = z.object({
   /** Either subjectId (number) or subject name fragment (string). */
   subjectId: z.number().int().optional(),
   subjectName: z.string().optional(),
+  /**
+   * Academic year ("YYYY-YY") the bootstrap job should target. NCERT PDFs
+   * are year-agnostic but the curriculum tree is year-specific, so without
+   * this the worker falls back to DEFAULT_ACADEMIC_YEAR and an admin who
+   * clicks Bootstrap while pinned to 2025-26 would still write into the
+   * default-year standards row. Plumbed through to addNcertDownloadJob
+   * below; fanout/autopublish are year-scoped via `filter.academicYear`.
+   */
+  academicYear: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/, "academicYear must be YYYY-YY")
+    .optional(),
   /** Bootstrap-only knobs */
   maxChapters: z.number().int().min(1).max(5000).optional(),
   dryRun: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
+  // Auth check — same dev-bypass pattern as /api/admin/content/fill-gaps so
+  // both admin content-ops endpoints behave the same way. In development we
+  // accept an unauthenticated request as admin (to match the middleware
+  // DEV_BYPASS used in src/middleware.ts), but we still honour a real session
+  // if one exists — that way signing in as a non-admin user doesn't silently
+  // get promoted. In production the session+role check is strict.
   const session = await auth();
-  if (!session || session.user.role !== "admin") {
+  const isAdmin =
+    session?.user?.role === "admin" ||
+    (!session && process.env.NODE_ENV === "development");
+  if (!isAdmin) {
     return NextResponse.json(
       { success: false, error: { code: "UNAUTHORIZED", message: "Admin access required" } },
       { status: 403 }
@@ -65,8 +86,23 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  const { action, board, grade, subjectId, subjectName, maxChapters, dryRun } = parsed.data;
+  const {
+    action,
+    board,
+    grade,
+    subjectId,
+    subjectName,
+    academicYear,
+    maxChapters,
+    dryRun,
+  } = parsed.data;
 
+  // Fanout + autopublish identify the target session via `subjectId`
+  // (which uniquely maps to one standards row and therefore one academic
+  // year), so they don't need `academicYear` plumbed separately.
+  // Bootstrap is different — it might be *creating* the target subject —
+  // so it uses `academicYear` directly in the addNcertDownloadJob call
+  // further down.
   const filter: CoverageFilter = {
     boardCode: board,
     grade,
@@ -104,7 +140,12 @@ export async function POST(request: NextRequest) {
       }
 
       // Dedup: don't enqueue if an identical bootstrap is already active.
-      const sourceUrl = `coverage://bootstrap/${board ?? "all"}/${grade}/${ncertSubjectName ?? "all"}`;
+      // `academicYear` is part of the dedup key because a 2025-26 bootstrap
+      // and a 2026-27 bootstrap for the same subject are distinct jobs —
+      // without it, clicking Bootstrap from the 2026-27 UI while a stale
+      // 2025-26 job exists would silently short-circuit and return the
+      // wrong jobId.
+      const sourceUrl = `coverage://bootstrap/${board ?? "all"}/${grade}/${ncertSubjectName ?? "all"}/${academicYear ?? "default"}`;
       const existing = await db
         .select({ id: scrapeJobs.id, status: scrapeJobs.status })
         .from(scrapeJobs)
@@ -139,8 +180,17 @@ export async function POST(request: NextRequest) {
             board: board ?? null,
             grade,
             subject: ncertSubjectName ?? null,
+            // Surface the target session in the scrape_jobs audit row so
+            // admins can tell 2025-26 vs 2026-27 runs apart at a glance on
+            // /scrape-jobs, and the JobStatusCard's "Triggered / Year" chip
+            // below shows the right value.
+            academicYear: academicYear ?? null,
             maxChapters: maxChapters ?? null,
-            triggeredBy: session.user.email ?? session.user.id,
+            // `session` may be null under the dev-bypass branch above; fall
+            // back to a synthetic label so scrape_jobs.metadata is still a
+            // well-formed audit trail.
+            triggeredBy:
+              session?.user?.email ?? session?.user?.id ?? "dev-bypass",
             triggeredAt: new Date().toISOString(),
           },
         })
@@ -153,6 +203,12 @@ export async function POST(request: NextRequest) {
         subjects: ncertSubjectName ? [ncertSubjectName] : undefined,
         languages: ["en"],
         maxChapters,
+        // Pass the UI's pinned session through to the downloader so the
+        // `standards` row it creates/finds is the right one. Without this
+        // the downloader falls back to DEFAULT_ACADEMIC_YEAR and an admin
+        // who pinned 2025-26 in the Session dropdown would still end up
+        // writing rows under 2026-27.
+        academicYear,
       });
 
       await db

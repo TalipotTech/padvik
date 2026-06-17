@@ -2,26 +2,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { PadvikLogo } from "@/components/ui/padvik-logo";
-
-// Primary nav — the simplified, end-to-end workflow that admins should use
-// every day. "Coverage" is the one-point Board→Grade→Subject content view
-// with a three-step ingest pipeline (bootstrap → fan-out → auto-publish).
-const primaryNav = [
-  { href: "/admin/coverage", label: "Coverage" },
-  { href: "/curriculum", label: "Syllabus" },
-  { href: "/question-papers", label: "Questions" },
-  { href: "/admin/ai-providers", label: "AI Providers" },
-  { href: "/admin/notification-scraper", label: "Notifications" },
-];
-
-// Legacy nav — older pipeline UIs kept around for visibility and audit, but
-// the simplified Coverage flow above is now the preferred entry point.
-// These stay one click away; the visual separator makes the distinction clear.
-const legacyNav = [
-  { href: "/scrape-jobs", label: "Scrape Jobs" },
-  { href: "/admin/pipeline", label: "Pipeline Overview" },
-  { href: "/admin/content-review", label: "Review" },
-];
+import { primaryNav, legacyNav } from "./_nav";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();

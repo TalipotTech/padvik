@@ -1,12 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { standards, subjects, chapters, topics } from "@/db/schema/curriculum";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, desc } from "drizzle-orm";
 import type { SubjectWithChapters, ChapterWithTopics } from "@/types/curriculum";
+import { ACADEMIC_YEAR_REGEX } from "@/lib/academic-year";
 
 // ---------------------------------------------------------------------------
-// GET /api/boards/[boardId]/subjects?grade=10&stream=Science
-// Returns SubjectWithChapters[] — full nested hierarchy for a board+grade
+// GET /api/boards/[boardId]/subjects?grade=10&stream=Science&academicYear=2026-27
+//
+// Returns SubjectWithChapters[] — full nested hierarchy for a board+grade.
+//
+// The standards table is keyed on (boardId, grade, stream, academicYear), so
+// the same board+grade can have multiple rows (e.g. CBSE Class 10 exists for
+// both 2025-26 and 2026-27 during the rollover window). Before this route
+// took `academicYear`, the `.limit(1)` here silently picked whichever row
+// Postgres returned first — usually the oldest — and students viewing
+// 2026-27 content saw 2025-26 chapters. Now:
+//   - when `academicYear` is passed, we filter to that session exactly;
+//   - when it's omitted, we order by academicYear DESC so the newest session
+//     wins deterministically. Callers that want a specific session must pass
+//     it explicitly.
 // ---------------------------------------------------------------------------
 export async function GET(
   req: NextRequest,
@@ -37,22 +50,34 @@ export async function GET(
     );
   }
   const stream = url.searchParams.get("stream") || null;
+  const academicYearParam = url.searchParams.get("academicYear");
+  const academicYear =
+    academicYearParam && ACADEMIC_YEAR_REGEX.test(academicYearParam)
+      ? academicYearParam
+      : null;
 
-  // Step 1: Find the standard
+  // Step 1: Find the standard. When academicYear is specified, we filter on
+  // it — otherwise we DESC-order by academic_year so the newest session wins
+  // (see block comment at top of the file for why a deterministic default
+  // matters here).
   const streamCondition = stream
     ? eq(standards.stream, stream)
     : isNull(standards.stream);
 
+  const standardConditions = [
+    eq(standards.boardId, boardId),
+    eq(standards.grade, grade),
+    streamCondition,
+  ];
+  if (academicYear) {
+    standardConditions.push(eq(standards.academicYear, academicYear));
+  }
+
   const [standard] = await db
     .select()
     .from(standards)
-    .where(
-      and(
-        eq(standards.boardId, boardId),
-        eq(standards.grade, grade),
-        streamCondition,
-      ),
-    )
+    .where(and(...standardConditions))
+    .orderBy(desc(standards.academicYear))
     .limit(1);
 
   if (!standard) {

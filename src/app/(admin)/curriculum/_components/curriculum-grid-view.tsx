@@ -73,7 +73,10 @@ export function CurriculumGridView({ data, search }: GridViewProps) {
         if (search.length >= 2 && visibleSubjects.length === 0) return null;
 
         return (
-          <div key={`${grade.grade}-${grade.stream}`}>
+          // Key includes academicYear so React treats 2025-26 Class 10 and
+          // 2026-27 Class 10 as distinct sections (otherwise the second
+          // section would silently drop due to duplicate keys).
+          <div key={`${grade.grade}-${grade.stream}-${grade.academicYear}`}>
             {/* Grade header */}
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -81,6 +84,9 @@ export function CurriculumGridView({ data, search }: GridViewProps) {
                   Class {grade.grade}
                   {grade.stream && ` — ${grade.stream}`}
                 </h2>
+                <span className="rounded bg-violet-100 px-1.5 py-0.5 font-mono text-[11px] text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+                  {grade.academicYear}
+                </span>
                 <Badge variant="outline" className="text-xs">
                   {grade.subjectsWithChapters}/{expected} parsed
                 </Badge>

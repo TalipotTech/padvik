@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
+import { DEFAULT_ACADEMIC_YEAR, SELECTABLE_ACADEMIC_YEARS } from "@/lib/academic-year";
 import { ScrapeProgress } from "./_components/scrape-progress";
 import { QueueDashboard } from "./_components/queue-dashboard";
 import { AIUsagePanel } from "./_components/ai-usage-panel";
@@ -52,6 +53,13 @@ interface JobMetadata {
   triggeredBy?: string;
   triggeredAt?: string;
   restartedFrom?: number;
+  /**
+   * Academic year ("YYYY-YY") the job was enqueued against. Every trigger
+   * endpoint (generic scrape, NCERT download, Kerala, state-board) stamps
+   * this in metadata so Job History can render the session alongside the
+   * board + grade chips without re-deriving it from the source URL.
+   */
+  academicYear?: string;
 }
 
 interface ScrapeJob {
@@ -70,19 +78,29 @@ interface ScrapeJob {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
+// Board options
 // ---------------------------------------------------------------------------
-const BOARDS = [
-  { code: "CBSE", label: "CBSE", url: "cbseacademic.nic.in" },
-  { code: "ICSE", label: "ICSE", url: "cisce.org" },
-  { code: "KL_SCERT", label: "Kerala SCERT", url: "scert.kerala.gov.in" },
-  { code: "KA_KSEAB", label: "Karnataka", url: "ktbs.kar.nic.in" },
-  { code: "TN_DGE", label: "Tamil Nadu", url: "textbooksonline.tn.nic.in" },
-  { code: "MH_MSBSHSE", label: "Maharashtra", url: "ebalbharati.in" },
-  { code: "AP_BSEAP", label: "AP / Telangana", url: "scert.ap.gov.in" },
+// The dropdown is sourced from /api/boards (all active boards in the DB) plus
+// two hardcoded *content-source* targets — NCERT and DIKSHA — which are not
+// Indian education boards themselves but multi-board content catalogues the
+// scrape workers know how to ingest from.
+interface BoardOption {
+  code: string;
+  label: string;
+  url: string;
+}
+
+const SOURCE_ONLY_BOARDS: BoardOption[] = [
   { code: "NCERT", label: "NCERT Textbooks", url: "ncert.nic.in" },
   { code: "DIKSHA", label: "DIKSHA (All Boards)", url: "diksha.gov.in" },
-] as const;
+];
+
+interface DbBoardRow {
+  id: number;
+  code: string;
+  name: string;
+  websiteUrl: string | null;
+}
 
 const AI_PROVIDERS = [
   { value: "auto", label: "Auto (Rotate)", description: "Cost-optimized: Gemini 2.5 Flash → Pro → Mistral → Claude" },
@@ -137,10 +155,34 @@ const PROVIDER_LABELS: Record<string, string> = {
   sarvam: "Sarvam Vision",
 };
 
+// Human-readable names for job_type enum values. Falls back to a snake_case →
+// Title Case render if a new type is added without being registered here.
+const JOB_TYPE_LABELS: Record<string, string> = {
+  syllabus: "Syllabus",
+  question_paper: "Question Paper",
+  textbook: "Textbook",
+  ncert_download: "NCERT Download",
+  diksha_ingest: "DIKSHA Ingest",
+  kerala_scrape: "Kerala Scrape",
+  state_board_scrape: "State Board Scrape",
+  content_generate: "AI Content Generator",
+  cbse_content_fill: "CBSE Content Fill",
+};
+
+function jobTypeLabel(value: string): string {
+  return (
+    JOB_TYPE_LABELS[value] ??
+    value
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page Component
 // ---------------------------------------------------------------------------
 export default function ScrapeJobsPage() {
+  const [boards, setBoards] = useState<BoardOption[]>([]);
   const [jobs, setJobs] = useState<ScrapeJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
@@ -151,6 +193,11 @@ export default function ScrapeJobsPage() {
   const [retrySkipped, setRetrySkipped] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState("auto");
   const [jobTypeFilter, setJobTypeFilter] = useState("all");
+  // Academic year for every job kind — controls which curriculum_YYYY.html the
+  // CBSE syllabus scraper hits, which session tag lands on NCERT/Kerala/state
+  // rows, and which bucket Job History groups the entry under. Default lives
+  // in @/lib/academic-year so the annual rollover is a one-line change.
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState(DEFAULT_ACADEMIC_YEAR);
 
   // New pipeline job fields
   const [gradeStart, setGradeStart] = useState("1");
@@ -195,6 +242,34 @@ export default function ScrapeJobsPage() {
   useEffect(() => {
     fetchJobs();
   }, [fetchJobs]);
+
+  // Fetch the active board list from the DB on mount, then append the
+  // NCERT/DIKSHA scraper-only targets. Falls back silently to just the
+  // source-only list if the API is unreachable so the Jobs tab is never
+  // completely broken.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/boards");
+        const data = await res.json();
+        if (cancelled) return;
+        const dbBoards: BoardOption[] = Array.isArray(data?.data)
+          ? (data.data as DbBoardRow[]).map((b) => ({
+              code: b.code,
+              label: b.name,
+              url: (b.websiteUrl ?? "").replace(/^https?:\/\//, "") || "—",
+            }))
+          : [];
+        setBoards([...dbBoards, ...SOURCE_ONLY_BOARDS]);
+      } catch {
+        if (!cancelled) setBoards([...SOURCE_ONLY_BOARDS]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Filter jobs by selected type
   const filteredJobs = jobTypeFilter === "all"
@@ -242,6 +317,7 @@ export default function ScrapeJobsPage() {
             aiProvider: selectedProvider,
             maxChapters: parseInt(maxChapters, 10) || 50,
             downloadOnly,
+            academicYear: selectedAcademicYear,
           },
         };
       case "kerala_scrape":
@@ -253,6 +329,7 @@ export default function ScrapeJobsPage() {
             medium,
             aiProvider: selectedProvider,
             downloadOnly,
+            academicYear: selectedAcademicYear,
           },
         };
       case "state_board_scrape":
@@ -265,6 +342,7 @@ export default function ScrapeJobsPage() {
             aiProvider: selectedProvider,
             maxPdfs: parseInt(maxPdfs, 10) || 150,
             downloadOnly,
+            academicYear: selectedAcademicYear,
           },
         };
       case "content_generate":
@@ -290,6 +368,11 @@ export default function ScrapeJobsPage() {
             maxPdfs: parseInt(maxPdfs, 10) || 150,
             retrySkipped: retrySkipped || undefined,
             aiProvider: selectedProvider,
+            // Only meaningful for CBSE syllabus today, but sending it
+            // unconditionally is safe — the API ignores unknown fields on
+            // jobs that don't use it (Zod schema is permissive on optional
+            // keys, the server only threads it when boardCode=CBSE).
+            academicYear: selectedAcademicYear,
           },
         };
     }
@@ -354,6 +437,7 @@ export default function ScrapeJobsPage() {
             grades: batch.grades,
             maxPdfs: 200,
             aiProvider: selectedProvider,
+            academicYear: selectedAcademicYear,
           }),
         });
         const data = await res.json();
@@ -432,6 +516,7 @@ export default function ScrapeJobsPage() {
           { value: "diksha_ingest", label: "DIKSHA" },
           { value: "kerala_scrape", label: "Kerala" },
           { value: "content_generate", label: "AI Gen" },
+          { value: "cbse_content_fill", label: "CBSE Fill" },
         ].map((t) => (
           <button
             key={t.value}
@@ -480,13 +565,13 @@ export default function ScrapeJobsPage() {
                 <div className="space-y-2">
                   <Label htmlFor="board">Board</Label>
                   <Select value={selectedBoard} onValueChange={setSelectedBoard}>
-                    <SelectTrigger id="board" className="w-[160px]">
+                    <SelectTrigger id="board" className="w-[260px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {BOARDS.map((b) => (
+                      {boards.map((b) => (
                         <SelectItem key={b.code} value={b.code}>
-                          {b.label}
+                          {b.code} — {b.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -536,6 +621,42 @@ export default function ScrapeJobsPage() {
                       <Input id="maxPdfs" type="number" min={1} max={500} value={maxPdfs} onChange={(e) => setMaxPdfs(e.target.value)} className="w-[100px]" />
                     </div>
                   </>
+                )}
+
+                {/*
+                  Academic year selector — rendered for every job type that
+                  threads academicYear through its API route (syllabus, NCERT,
+                  Kerala, state-board, etc.). DIKSHA ingest + AI content gen
+                  are year-agnostic today, so they skip this. Options come
+                  from SELECTABLE_ACADEMIC_YEARS so bumping the list on the
+                  annual rollover is a one-line change in /lib/academic-year.
+                */}
+                {[
+                  "syllabus",
+                  "question_paper",
+                  "textbook",
+                  "state_board_scrape",
+                  "ncert_download",
+                  "kerala_scrape",
+                ].includes(selectedJobType) && (
+                  <div className="space-y-2">
+                    <Label htmlFor="academicYear">Academic Year</Label>
+                    <Select
+                      value={selectedAcademicYear}
+                      onValueChange={setSelectedAcademicYear}
+                    >
+                      <SelectTrigger id="academicYear" className="w-[140px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SELECTABLE_ACADEMIC_YEARS.map((y) => (
+                          <SelectItem key={y} value={y}>
+                            {y}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 )}
 
                 {["diksha_ingest", "kerala_scrape"].includes(selectedJobType) && (
@@ -726,7 +847,7 @@ export default function ScrapeJobsPage() {
                 <div className="space-y-1.5 text-xs text-muted-foreground">
                   <div className="flex items-center gap-1">
                     <Globe className="size-3" />
-                    Source: {BOARDS.find((b) => b.code === selectedBoard)?.url}
+                    Source: {boards.find((b) => b.code === selectedBoard)?.url ?? "—"}
                   </div>
                   <div className="flex items-center gap-1">
                     <Cpu className="size-3" />
@@ -753,7 +874,7 @@ export default function ScrapeJobsPage() {
                     ) : (
                       <Play className="mr-1.5 size-3" />
                     )}
-                    Scrape All {BOARDS.find((b) => b.code === selectedBoard)?.label} PDFs
+                    Scrape All {boards.find((b) => b.code === selectedBoard)?.label ?? selectedBoard} PDFs
                   </Button>
                 </div>
               </div>
@@ -841,7 +962,7 @@ export default function ScrapeJobsPage() {
               <div>
                 <CardTitle className="text-lg">Job History</CardTitle>
                 <CardDescription>
-                  {filteredJobs.length} jobs{jobTypeFilter !== "all" ? ` (${jobTypeFilter.replace("_", " ")})` : ""} — {jobs.length} total
+                  {filteredJobs.length} jobs{jobTypeFilter !== "all" ? ` (${jobTypeLabel(jobTypeFilter)})` : ""} — {jobs.length} total
                 </CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={fetchJobs}>
@@ -857,7 +978,7 @@ export default function ScrapeJobsPage() {
               ) : filteredJobs.length === 0 ? (
                 <div className="py-8 text-center text-muted-foreground">
                   <Globe className="mx-auto mb-2 size-8 opacity-30" />
-                  <p>{jobTypeFilter === "all" ? "No scrape jobs yet. Trigger one above." : `No ${jobTypeFilter.replace("_", " ")} jobs found.`}</p>
+                  <p>{jobTypeFilter === "all" ? "No scrape jobs yet. Trigger one above." : `No ${jobTypeLabel(jobTypeFilter)} jobs found.`}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -958,6 +1079,17 @@ function JobCard({
         <span className="text-xs text-muted-foreground">
           {job.itemsProcessed}/{job.itemsFound || "?"} PDFs
         </span>
+        {/*
+          Academic year chip — only rendered when the job was enqueued with
+          one, so older rows (pre-threading migration) stay visually clean
+          rather than displaying a noisy "—". Narrow, fixed min-width so it
+          doesn't shove the duration / provider columns around.
+        */}
+        {meta.academicYear && (
+          <span className="rounded bg-violet-100 px-1.5 py-0.5 font-mono text-[10px] text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+            {meta.academicYear}
+          </span>
+        )}
         <span className="flex-1" />
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Cpu className="size-3" />
@@ -993,7 +1125,7 @@ function JobCard({
             </div>
             <div>
               <div className="text-xs text-muted-foreground">Job Type</div>
-              <div className="text-xs font-medium capitalize">{job.jobType.replace(/_/g, " ")}</div>
+              <div className="text-xs font-medium">{jobTypeLabel(job.jobType)}</div>
             </div>
             <div>
               <div className="text-xs text-muted-foreground">AI Provider</div>
@@ -1055,6 +1187,10 @@ function JobCard({
             <div>
               <div className="text-xs text-muted-foreground">Triggered By</div>
               <div className="text-xs font-medium">{meta.triggeredBy ?? "—"}</div>
+            </div>
+            <div>
+              <div className="text-xs text-muted-foreground">Academic Year</div>
+              <div className="text-xs font-medium">{meta.academicYear ?? "—"}</div>
             </div>
           </div>
 

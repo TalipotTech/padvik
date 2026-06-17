@@ -13,12 +13,14 @@ import { db } from "@/db";
 import { boards } from "@/db/schema/curriculum";
 import { contentPipelineLogs } from "@/db/schema/system";
 import { BaseScraper } from "./base-scraper";
-import { extractTextFromPdf, extractLinks, resolveUrl } from "./parser";
+import { extractTextFromPdfWithPages, extractLinks, resolveUrl } from "./parser";
 import { insertParsedSyllabus, type SourceContext } from "./syllabus-inserter";
 import { savePdfLocally, saveExtractedText } from "./pdf-storage";
 import { resolveModelWithFallbacks } from "./ai-model-resolver";
+import { splitSyllabusByClass, type GradeSlice } from "./class-section-splitter";
 import { aiChat, isAuthError, isQuotaError } from "../ai/provider";
 import type { AIProviderChoice } from "../queue";
+import { DEFAULT_ACADEMIC_YEAR } from "../academic-year";
 import {
   SYSTEM_PROMPT,
   buildUserPrompt,
@@ -28,9 +30,34 @@ import {
 } from "../ai/prompts/syllabus-parser";
 
 const CBSE_CURRICULUM_BASE = "https://cbseacademic.nic.in";
-const CBSE_CURRICULUM_PAGE = `${CBSE_CURRICULUM_BASE}/curriculum_2026.html`;
 
 const PDF_LINK_PATTERN = /\.pdf$/i;
+
+/**
+ * CBSE publishes a separate curriculum index page per academic year at
+ * `curriculum_YYYY.html`, where YYYY is the END year of the session
+ * (e.g. 2026-27 → curriculum_2027.html, 2025-26 → curriculum_2026.html).
+ * We translate the "YYYY-YY" form used everywhere else in the codebase into
+ * CBSE's convention here and keep it as the single mapping point.
+ */
+export function cbseCurriculumPageUrl(academicYear: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(academicYear);
+  if (!match) {
+    throw new Error(
+      `Invalid academicYear "${academicYear}" — expected format YYYY-YY (e.g. "2026-27")`
+    );
+  }
+  const startYear = parseInt(match[1], 10);
+  const endYY = parseInt(match[2], 10);
+  // Resolve the 2-digit end-year suffix against the century of the start year.
+  // "2026-27" → 2027; "1999-00" (hypothetical) → 2000.
+  const startCentury = Math.floor(startYear / 100) * 100;
+  const endYear =
+    endYY >= startYear % 100
+      ? startCentury + endYY
+      : startCentury + 100 + endYY;
+  return `${CBSE_CURRICULUM_BASE}/curriculum_${endYear}.html`;
+}
 
 /** CBSE URL path segments map to grade ranges */
 const CBSE_SECTION_GRADES: Record<string, number[]> = {
@@ -46,6 +73,13 @@ export interface CbseScrapeOptions {
   aiProvider?: AIProviderChoice;
   /** URLs already processed (for resume after failure) */
   processedUrls?: string[];
+  /**
+   * Academic year to scrape, formatted "YYYY-YY" (e.g. "2026-27"). Selects
+   * the per-year CBSE curriculum index page and tags every inserted
+   * standard/subject/chapter/topic with this year. Defaults to
+   * `DEFAULT_ACADEMIC_YEAR` when omitted.
+   */
+  academicYear?: string;
 }
 
 /** Detailed result of a scrape run */
@@ -92,11 +126,18 @@ export class CbseScraper extends BaseScraper {
         throw new Error("CBSE board not found in database. Run seed first.");
       }
 
-      this.log(`Starting CBSE syllabus scrape (board id: ${board.id})`);
+      const academicYear = options?.academicYear ?? DEFAULT_ACADEMIC_YEAR;
+      const curriculumPageUrl = cbseCurriculumPageUrl(academicYear);
 
-      // Fetch the curriculum index page
-      this.log(`Fetching curriculum page: ${CBSE_CURRICULUM_PAGE}`);
-      const pageResult = await this.fetchText(CBSE_CURRICULUM_PAGE);
+      this.log(
+        `Starting CBSE syllabus scrape (board id: ${board.id}, academic year: ${academicYear})`
+      );
+
+      // Fetch the per-year curriculum index page. CBSE rotates the file
+      // name every session (curriculum_2026.html, curriculum_2027.html, ...)
+      // — see cbseCurriculumPageUrl() for the mapping.
+      this.log(`Fetching curriculum page: ${curriculumPageUrl}`);
+      const pageResult = await this.fetchText(curriculumPageUrl);
 
       if (!pageResult.success || !pageResult.data) {
         throw new Error(`Failed to fetch curriculum page: ${pageResult.error}`);
@@ -216,6 +257,8 @@ export class CbseScraper extends BaseScraper {
       // Save summary to job metadata
       if (jobId) {
         await this.updateJobMetadata(jobId, {
+          academicYear,
+          sourceUrl: curriculumPageUrl,
           scrapeResult: {
             processed: result.processed,
             failed: result.failed,
@@ -266,11 +309,16 @@ export class CbseScraper extends BaseScraper {
     const pdfSizeKb = (pdfResult.data.length / 1024).toFixed(1);
     this.log(`  Downloaded (${pdfSizeKb} KB)`);
 
-    // Step 2: Extract text from PDF
+    // Step 2: Extract text from PDF (with per-page offsets so we can map the
+    // class-section header's char-offset to a PDF page number — stashed on
+    // chapter metadata so the learn-view can open the PDF at #page=N).
     this.log("  Extracting text...");
     let pdfText: string;
+    let pageOffsets: number[] = [];
     try {
-      pdfText = await extractTextFromPdf(pdfResult.data);
+      const extracted = await extractTextFromPdfWithPages(pdfResult.data);
+      pdfText = extracted.text;
+      pageOffsets = extracted.pageOffsets;
     } catch (err) {
       this.logError("  PDF text extraction failed", err);
       await this.logPipeline("text_extraction", logEntityId, "failed", {
@@ -322,101 +370,236 @@ export class CbseScraper extends BaseScraper {
       pdfPath, textPath,
     }, Date.now() - pdfStartTime);
 
-    // Step 4: Send to AI for parsing
-    const aiStartTime = Date.now();
-    const models = resolveModelWithFallbacks(options?.aiProvider);
-    this.log(`  Sending to AI for parsing (models: ${models.join(", ")})...`);
+    // Step 4: Decide per-class text slices.
+    // -----------------------------------------------------------------------
+    // Secondary (IX-X) and Senior Secondary (XI-XII) CBSE PDFs cover two
+    // classes in one document. To avoid cross-class topic contamination
+    // (Class IX topics showing up under Class X, etc.), slice the PDF text
+    // by class-section markers and parse each slice independently.
+    //
+    // plan[grade] = text to send to AI for that grade. When splitting fails
+    // we fall back to feeding every grade the full PDF text (identical to
+    // legacy behaviour), but log a warning so the admin knows the resulting
+    // subject rows may be mixed-class.
+    // -----------------------------------------------------------------------
+    const resolvedGrades =
+      filteredGrades[0] === 0 ? [primaryGrade] : filteredGrades;
 
-    const userPrompt = buildUserPrompt({
-      pdfText,
-      boardCode: "CBSE",
-      grade: primaryGrade,
-      subjectHint: options?.subjectFilter,
-    });
-
-    let aiResult = null;
-    let modelUsed = "";
-    for (const model of models) {
-      try {
-        const isGemini = model.startsWith("gemini-");
-        aiResult = await aiChat(userPrompt, {
-          model,
-          systemPrompt: SYSTEM_PROMPT,
-          temperature: promptConfig.temperature,
-          maxTokens: promptConfig.maxTokens,
-          jsonOutput: isGemini,
-        });
-        modelUsed = model;
-        this.log(
-          `  AI response (${model}): ${aiResult.inputTokens} in / ${aiResult.outputTokens} out ($${aiResult.costUsd.toFixed(4)})`
+    // planByGrade entries are GradeSlice records. `startPage` is the
+    // 1-indexed page in `pdfPath` where that grade's section begins —
+    // populated only when the class-splitter actually ran and had page
+    // offsets available. `startOffset` / `endOffset` bound the grade's
+    // section within `pdfText`; they're required on GradeSlice, so the
+    // fallback branches fill them with the full-document range.
+    // Passed through to syllabus-inserter as SourceContext.sourcePdfPage
+    // so the UI can open the PDF viewer at the right page.
+    let planByGrade: Map<number, GradeSlice>;
+    let splitApplied = false;
+    if (resolvedGrades.length > 1) {
+      const split = splitSyllabusByClass(pdfText, resolvedGrades, pageOffsets);
+      if (split) {
+        planByGrade = split;
+        splitApplied = true;
+        const summary = [...split.entries()]
+          .map(([g, s]) =>
+            s.startPage !== undefined
+              ? `Class ${g}: ${s.text.length} chars (page ${s.startPage}+)`
+              : `Class ${g}: ${s.text.length} chars`
+          )
+          .join(", ");
+        this.log(`  Split by class — ${summary}`);
+      } else {
+        // Split failed — feed full PDF text to every grade. startOffset/
+        // endOffset cover the whole document since we have no better
+        // information about where each grade's section lives.
+        planByGrade = new Map(
+          resolvedGrades.map((g) => [
+            g,
+            {
+              text: pdfText,
+              startPage: undefined,
+              startOffset: 0,
+              endOffset: pdfText.length,
+            },
+          ])
         );
-        break;
-      } catch (err) {
-        this.logError(`  AI call failed with model ${model}`, err);
-        if (model === models[models.length - 1]) throw err;
-        this.log(`  Falling back to next model...`);
+        this.log(
+          `  ⚠ Could not split PDF by class markers — feeding full text to all ${resolvedGrades.length} grades. Resulting subjects may contain mixed-class chapters. Run a cleanup & re-scrape once markers are improved if this happens.`
+        );
       }
-    }
-    if (!aiResult) throw new Error("All AI models failed");
-
-    // Log AI call
-    await this.logPipeline("ai_parse", logEntityId, "completed", {
-      url: pdfUrl, filename, grades: filteredGrades,
-      inputTokens: aiResult.inputTokens,
-      outputTokens: aiResult.outputTokens,
-      costUsd: aiResult.costUsd,
-    }, Date.now() - aiStartTime, modelUsed, aiResult.inputTokens + aiResult.outputTokens);
-
-    // Step 5: Parse and validate
-    let parsed: SyllabusParseResult;
-    try {
-      parsed = parseResponse(aiResult.content);
-    } catch (err) {
-      this.logError("  AI response validation failed", err);
-      await this.logPipeline("validation", logEntityId, "failed", {
-        url: pdfUrl, filename, model: modelUsed,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return false;
+    } else {
+      // Single-grade PDF — no split needed; section is the entire document.
+      planByGrade = new Map([
+        [
+          resolvedGrades[0],
+          {
+            text: pdfText,
+            startPage: undefined,
+            startOffset: 0,
+            endOffset: pdfText.length,
+          },
+        ],
+      ]);
     }
 
-    const topicCount = parsed.chapters.reduce((sum, ch) => sum + ch.topics.length, 0);
-    this.log(
-      `  Parsed: ${parsed.subjectName} (${parsed.subjectCode}) — ${parsed.chapters.length} chapters, ${topicCount} topics`
-    );
-
-    // Step 6: Insert into database with provenance
-    const insertGrades =
-      filteredGrades[0] === 0 ? [parsed.grade] : filteredGrades;
-
+    // Step 5: For each grade in plan → AI call → parse → insert.
+    // -----------------------------------------------------------------------
     const sourceContext: SourceContext = {
       pdfPath,
       textPath,
       pdfUrl,
-      aiModel: modelUsed,
+      aiModel: "", // filled per-call below
       scrapeJobId: jobId,
       boardCode: "CBSE",
+      // Pin the row to the requested academic year — syllabus-inserter uses
+      // this to look up / create the right `standards` row and warns if the
+      // AI's own guess disagrees.
+      academicYear: options?.academicYear ?? DEFAULT_ACADEMIC_YEAR,
     };
 
-    for (const grade of insertGrades) {
-      this.log(`  Inserting into database for Class ${grade}...`);
-      const result = await insertParsedSyllabus(
-        boardId, grade, parsed, (msg) => this.log(msg), sourceContext
+    const aiStartTime = Date.now();
+    const models = resolveModelWithFallbacks(options?.aiProvider);
+    this.log(`  Sending to AI for parsing (models: ${models.join(", ")})...`);
+
+    let anyInserted = false;
+    for (const [grade, slice] of planByGrade) {
+      const sectionText = slice.text;
+      this.log(
+        splitApplied
+          ? `  → Class ${grade}: parsing ${sectionText.length}-char section${
+              slice.startPage !== undefined ? ` (PDF page ${slice.startPage}+)` : ""
+            }`
+          : `  → Class ${grade}: parsing full PDF (${sectionText.length} chars)`
       );
 
-      await this.logPipeline("db_insert", logEntityId, "completed", {
-        url: pdfUrl, filename, grade, subject: parsed.subjectName,
-        subjectCode: parsed.subjectCode,
-        chaptersInserted: result.chaptersInserted,
-        topicsInserted: result.topicsInserted,
-        subjectId: result.subjectId,
-        pdfPath, textPath,
-        model: modelUsed,
-        costUsd: aiResult.costUsd,
-      }, Date.now() - pdfStartTime, modelUsed, aiResult.inputTokens + aiResult.outputTokens);
-    }
-    this.log("  Done.");
+      const userPrompt = buildUserPrompt({
+        pdfText: sectionText,
+        boardCode: "CBSE",
+        grade,
+        subjectHint: options?.subjectFilter,
+      });
 
+      let aiResult: Awaited<ReturnType<typeof aiChat>> | null = null;
+      let modelUsed = "";
+      for (const model of models) {
+        try {
+          const isGemini = model.startsWith("gemini-");
+          aiResult = await aiChat(userPrompt, {
+            model,
+            systemPrompt: SYSTEM_PROMPT,
+            temperature: promptConfig.temperature,
+            maxTokens: promptConfig.maxTokens,
+            jsonOutput: isGemini,
+          });
+          modelUsed = model;
+          this.log(
+            `    AI response (${model}): ${aiResult.inputTokens} in / ${aiResult.outputTokens} out ($${aiResult.costUsd.toFixed(4)})`
+          );
+          break;
+        } catch (err) {
+          this.logError(`    AI call failed with model ${model}`, err);
+          if (model === models[models.length - 1]) throw err;
+          this.log(`    Falling back to next model...`);
+        }
+      }
+      if (!aiResult) throw new Error("All AI models failed");
+
+      await this.logPipeline(
+        "ai_parse",
+        logEntityId,
+        "completed",
+        {
+          url: pdfUrl,
+          filename,
+          grade,
+          splitApplied,
+          inputTokens: aiResult.inputTokens,
+          outputTokens: aiResult.outputTokens,
+          costUsd: aiResult.costUsd,
+        },
+        Date.now() - aiStartTime,
+        modelUsed,
+        aiResult.inputTokens + aiResult.outputTokens
+      );
+
+      let parsed: SyllabusParseResult;
+      try {
+        parsed = parseResponse(aiResult.content);
+      } catch (err) {
+        this.logError(`    AI response validation failed for Class ${grade}`, err);
+        await this.logPipeline("validation", logEntityId, "failed", {
+          url: pdfUrl,
+          filename,
+          grade,
+          model: modelUsed,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        continue; // Try the next grade — one bad slice shouldn't lose the other.
+      }
+
+      // If the AI returned a different grade than we asked for (e.g. the
+      // PDF text ambiguously names both classes), trust the requested
+      // grade — it's what inferGrades locked on from the URL.
+      if (parsed.grade !== grade) {
+        this.log(
+          `    Note: AI returned grade ${parsed.grade} but inserting under Class ${grade} (PDF URL indicated Class ${grade}).`
+        );
+      }
+
+      const topicCount = parsed.chapters.reduce((sum, ch) => sum + ch.topics.length, 0);
+      this.log(
+        `    Parsed: ${parsed.subjectName} (${parsed.subjectCode}) — ${parsed.chapters.length} chapters, ${topicCount} topics`
+      );
+
+      this.log(`    Inserting into database for Class ${grade}...`);
+      const insertResult = await insertParsedSyllabus(
+        boardId,
+        grade,
+        parsed,
+        (msg) => this.log(`    ${msg}`),
+        {
+          ...sourceContext,
+          aiModel: modelUsed,
+          // Per-grade start page for the combined-class PDF — only set when
+          // the splitter ran successfully. Syllabus-inserter stashes this
+          // on chapter + subject metadata so the learn-view PDF iframe
+          // opens at the right page instead of the sibling grade's cover.
+          sourcePdfPage: slice.startPage,
+        }
+      );
+      anyInserted = true;
+
+      await this.logPipeline(
+        "db_insert",
+        logEntityId,
+        "completed",
+        {
+          url: pdfUrl,
+          filename,
+          grade,
+          subject: parsed.subjectName,
+          subjectCode: parsed.subjectCode,
+          chaptersInserted: insertResult.chaptersInserted,
+          topicsInserted: insertResult.topicsInserted,
+          subjectId: insertResult.subjectId,
+          pdfPath,
+          textPath,
+          splitApplied,
+          model: modelUsed,
+          costUsd: aiResult.costUsd,
+        },
+        Date.now() - pdfStartTime,
+        modelUsed,
+        aiResult.inputTokens + aiResult.outputTokens
+      );
+    }
+
+    if (!anyInserted) {
+      this.log("  No grades were successfully inserted — all AI parses failed.");
+      return false;
+    }
+
+    this.log("  Done.");
     return true;
   }
 
