@@ -16,6 +16,10 @@ export async function GET() {
 
   try {
     const userId = Number(session.user.id);
+    // Demo sessions have IDs like "demo-student" — no user row to look up.
+    if (!Number.isFinite(userId)) {
+      return NextResponse.json({ success: true, data: { count: 0 } });
+    }
 
     // Get user's last_seen_notifications from preferences
     const [user] = await db

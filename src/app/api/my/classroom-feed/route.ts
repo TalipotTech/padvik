@@ -23,6 +23,10 @@ export async function GET() {
     );
   }
   const userId = Number(session.user.id);
+  // Demo sessions have IDs like "demo-student" — no real classroom data.
+  if (!Number.isFinite(userId)) {
+    return NextResponse.json({ success: true, data: { classrooms: [] } });
+  }
 
   // 1. Get student's active classroom memberships
   const memberships = await db

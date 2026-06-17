@@ -184,5 +184,53 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: true, data: { items: [...videos], total: countResult?.cnt ?? 0 } });
   }
 
-  return NextResponse.json({ success: false, error: { code: "INVALID_TAB", message: "Tab must be notes, chats, exams, or videos" } }, { status: 400 });
+  if (tab === "cards") {
+    // Adaptive Visual Explainer sessions. One row per (student, topic).
+    // We carry the deck cards + per-student extra cards so the journal detail
+    // view can re-render the actual cards read-only without another roundtrip.
+    const cards = await db.execute<{
+      id: number; topic_id: number; deck_id: number | null;
+      current_card: number; current_level: number; cards_completed: number;
+      re_explanations: number; questions_asked: number;
+      level_dropped: boolean; level_raised: boolean;
+      completed: boolean; completed_at: string | null; time_spent_secs: number;
+      started_at: string; updated_at: string;
+      cards_json: unknown; extra_cards: unknown; card_count: number | null;
+      total_read_time: number | null; deck_level: number | null;
+      topic_title: string; chapter_title: string; chapter_number: number;
+      subject_name: string; subject_id: number; grade: number; board_code: string;
+    }>(sql`
+      SELECT p.id, p.topic_id, p.deck_id,
+        p.current_card, p.current_level, p.cards_completed,
+        p.re_explanations, p.questions_asked,
+        p.level_dropped, p.level_raised,
+        p.completed, p.completed_at::text, p.time_spent_secs,
+        p.started_at::text, p.updated_at::text,
+        d.cards_json, p.extra_cards, d.card_count, d.total_read_time, d.level AS deck_level,
+        t.title AS topic_title, ch.title AS chapter_title, ch.chapter_number,
+        s.name AS subject_name, s.id AS subject_id, st.grade, b.code AS board_code
+      FROM student_explainer_progress p
+      LEFT JOIN topic_explainer_decks d ON d.id = p.deck_id
+      JOIN topics t ON t.id = p.topic_id
+      JOIN chapters ch ON ch.id = t.chapter_id
+      JOIN subjects s ON s.id = ch.subject_id
+      JOIN standards st ON st.id = s.standard_id
+      JOIN boards b ON b.id = st.board_id
+      WHERE p.student_id = ${userId} ${searchFilter} ${subjectFilter}
+      ORDER BY p.updated_at DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `);
+
+    const [countResult] = await db.execute<{ cnt: number }>(sql`
+      SELECT count(*)::int as cnt FROM student_explainer_progress p
+      JOIN topics t ON t.id = p.topic_id
+      JOIN chapters ch ON ch.id = t.chapter_id
+      JOIN subjects s ON s.id = ch.subject_id
+      WHERE p.student_id = ${userId} ${searchFilter} ${subjectFilter}
+    `);
+
+    return NextResponse.json({ success: true, data: { items: [...cards], total: countResult?.cnt ?? 0 } });
+  }
+
+  return NextResponse.json({ success: false, error: { code: "INVALID_TAB", message: "Tab must be notes, chats, exams, videos, or cards" } }, { status: 400 });
 }

@@ -14,6 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 // Dialog import removed — using custom fullscreen overlay for foundations
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
 import { ContentViewToggle } from "@/components/content/content-view-toggle";
+import { VisualCardsButton } from "@/components/explainer/VisualCardsButton";
+import { HelpHint } from "@/components/explainer/HelpHint";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
   BookOpen, Bookmark, BookmarkCheck, ChevronLeft, ChevronRight, Clock,
@@ -33,7 +35,12 @@ interface TopicData {
     learningObjectives: unknown; bloomLevel: string | null; estimatedMinutes: number | null;
     chapter: { id: number; number: number; title: string };
     subject: { id: number; name: string; code: string };
-    grade: number; board: { code: string; name: string };
+    grade: number;
+    /** The session this topic belongs to (e.g. "2026-27"). Threaded through
+     * from standards.academic_year so the breadcrumb can distinguish
+     * otherwise-identical Class 10 rows from different sessions. */
+    academicYear: string;
+    board: { code: string; name: string };
   };
   content: Array<{
     id: number; title: string; body: string; contentType: string;
@@ -522,7 +529,10 @@ export function LearnView({ topicId }: { topicId: number }) {
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div className="min-w-0">
               <h3 className="text-xs font-semibold truncate">{topic.subject.name}</h3>
-              <p className="text-[10px] text-muted-foreground">{topic.board.code} · Class {topic.grade}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {topic.board.code} · Class {topic.grade}
+                {topic.academicYear ? ` · ${topic.academicYear}` : ""}
+              </p>
             </div>
             <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setSidebarOpen(false)}><X className="h-3 w-3" /></Button>
           </div>
@@ -567,6 +577,7 @@ export function LearnView({ topicId }: { topicId: number }) {
         <SheetContent side="left" className="w-72 p-0">
           <SheetTitle className="px-3 py-2 text-xs font-semibold border-b">
             {topic.subject.name} · {topic.board.code} Class {topic.grade}
+            {topic.academicYear ? ` · ${topic.academicYear}` : ""}
           </SheetTitle>
           <ScrollArea className="h-[calc(100vh-4rem)]">
             <div className="p-1.5 space-y-0.5">
@@ -660,7 +671,10 @@ export function LearnView({ topicId }: { topicId: number }) {
                 <div className="flex flex-wrap items-center gap-1.5 mt-2">
                   <Badge variant="secondary" className="text-[10px]">{topic.subject.name}</Badge>
                   <Badge variant="outline" className="text-[10px]">Ch {topic.chapter.number}</Badge>
-                  <Badge variant="outline" className="text-[10px]">{topic.board.code} · Class {topic.grade}</Badge>
+                  <Badge variant="outline" className="text-[10px]">
+                    {topic.board.code} · Class {topic.grade}
+                    {topic.academicYear ? ` · ${topic.academicYear}` : ""}
+                  </Badge>
                   {topic.estimatedMinutes && <Badge variant="outline" className="text-[10px]"><Clock className="h-3 w-3 mr-0.5" />~{topic.estimatedMinutes}m</Badge>}
                   {questionCount > 0 && <Badge variant="outline" className="text-[10px]"><HelpCircle className="h-3 w-3 mr-0.5" />{questionCount} Qs</Badge>}
                   {understanding && (
@@ -670,16 +684,37 @@ export function LearnView({ topicId }: { topicId: number }) {
                   )}
                 </div>
                 {topic.description && <p className="text-sm text-muted-foreground mt-2">{topic.description}</p>}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3 gap-1.5"
-                  disabled={foundationLoading}
-                  onClick={handleBuildFoundations}
-                >
-                  {foundationLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}
-                  {foundationLoading ? "Building..." : "Build Foundations"}
-                </Button>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <VisualCardsButton topicId={topicId} showHelp />
+                  <span className="inline-flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={foundationLoading}
+                      onClick={handleBuildFoundations}
+                    >
+                      {foundationLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}
+                      {foundationLoading ? "Building..." : "Build Foundations"}
+                    </Button>
+                    <HelpHint
+                      title="Build Foundations"
+                      summary="Quick recap of the prerequisite concepts for this topic"
+                    >
+                      <p>
+                        Builds a short primer covering the earlier concepts you
+                        need <em>before</em> this topic — useful when something
+                        here assumes knowledge you haven&apos;t revised in a while.
+                      </p>
+                      <p>
+                        Tap it and the AI checks this topic&apos;s prerequisites
+                        and opens a recap. If a shared primer already exists it
+                        appears instantly; otherwise it&apos;s generated once and
+                        reused.
+                      </p>
+                    </HelpHint>
+                  </span>
+                </div>
               </div>
 
               <Separator className="mb-5" />

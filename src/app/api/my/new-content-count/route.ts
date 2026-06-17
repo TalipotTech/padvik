@@ -23,6 +23,10 @@ export async function GET(request: NextRequest) {
     );
   }
   const userId = Number(session.user.id);
+  // Demo sessions have IDs like "demo-student" — no real classroom data.
+  if (!Number.isFinite(userId)) {
+    return NextResponse.json({ success: true, data: { count: 0 } });
+  }
 
   // Parse since timestamp — default to 24 hours ago if not provided
   const sinceParam = request.nextUrl.searchParams.get("since");

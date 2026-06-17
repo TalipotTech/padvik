@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import {
   StickyNote, MessageSquare, GraduationCap, Search, ChevronRight,
   Play, Camera, Loader2, Award, BarChart3, X, ZoomIn, ZoomOut,
-  RotateCw, Maximize2, Minimize2, ArrowLeft, Video,
+  RotateCw, Maximize2, Minimize2, ArrowLeft, Video, Sparkles, CheckCircle2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
+import { useBoardSelection } from "@/hooks/use-board-selection";
+import { ExplainerCard } from "@/components/explainer/ExplainerCard";
+import type { ExplainerCard as ExplainerCardType } from "@/lib/explainer/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,6 +29,20 @@ interface ChatItem { id: number; topic_id: number; keyword: string | null; messa
 interface ExamItem { attempt_id: number; exam_id: number; title: string; total_score: string | null; max_score: string | null; percentage: string | null; grade: string | null; status: string; attempt_number: number; started_at: string | null; submitted_at: string | null; topic_id: number; topic_title: string; subject_name: string; subject_id: number; chapter_title: string }
 interface ExamSummary { subject_name: string; subject_id: number; exam_count: number; avg_percentage: number; best_percentage: number; total_score_sum: number; max_score_sum: number }
 interface VideoItem { id: number; topic_id: number; youtube_url: string; title: string | null; thumbnail_url: string | null; created_at: string; topic_title: string; chapter_title: string; subject_name: string; subject_id: number }
+interface CardSessionItem {
+  id: number; topic_id: number; deck_id: number | null;
+  current_card: number; current_level: number; cards_completed: number;
+  re_explanations: number; questions_asked: number;
+  level_dropped: boolean; level_raised: boolean;
+  completed: boolean; completed_at: string | null; time_spent_secs: number;
+  started_at: string; updated_at: string;
+  cards_json: ExplainerCardType[] | null; extra_cards: ExplainerCardType[] | null;
+  card_count: number | null; total_read_time: number | null; deck_level: number | null;
+  topic_title: string; chapter_title: string; chapter_number: number;
+  subject_name: string; subject_id: number; grade: number; board_code: string;
+}
+
+const LEVEL_LABEL: Record<number, string> = { 1: "Foundation", 2: "Standard", 3: "Advanced" };
 
 // ---------------------------------------------------------------------------
 // Component
@@ -41,6 +58,28 @@ export function JournalPage() {
   const [total, setTotal] = useState(0);
   const [examSummary, setExamSummary] = useState<ExamSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  // Pull the active session from the board selection + standards endpoint so
+  // the top bar can qualify "Study Journal" with "CBSE · Class 10 · 2026-27"
+  // — otherwise rollover year is invisible from the journal surface.
+  const { boardId, boardName, grade } = useBoardSelection();
+  const [academicYear, setAcademicYear] = useState<string | null>(null);
+  useEffect(() => {
+    if (!boardId || !grade) { setAcademicYear(null); return; }
+    let cancelled = false;
+    fetch(`/api/boards/${boardId}/standards`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (cancelled || !json?.success) return;
+        const rows = json.data as Array<{ grade: number; academicYear: string }>;
+        const matches = rows.filter((r) => r.grade === grade).map((r) => r.academicYear);
+        if (matches.length === 0) { setAcademicYear(null); return; }
+        // Lexicographic sort on "YYYY-YY" doubles as chronological — newest first.
+        setAcademicYear(matches.sort().reverse()[0]);
+      })
+      .catch(() => { if (!cancelled) setAcademicYear(null); });
+    return () => { cancelled = true; };
+  }, [boardId, grade]);
 
   // Image viewer state
   const [imgZoom, setImgZoom] = useState(1);
@@ -81,7 +120,8 @@ export function JournalPage() {
   const selectedChat = activeTab === "chats" ? (items as ChatItem[]).find((c) => c.id === selectedId) : null;
   const selectedExam = activeTab === "exams" ? (items as ExamItem[]).find((e) => e.attempt_id === selectedId) : null;
   const selectedVideo = activeTab === "videos" ? (items as VideoItem[]).find((v) => v.id === selectedId) : null;
-  const hasSelection = !!(selectedNote || selectedChat || selectedExam || selectedVideo);
+  const selectedCard = activeTab === "cards" ? (items as CardSessionItem[]).find((c) => c.id === selectedId) : null;
+  const hasSelection = !!(selectedNote || selectedChat || selectedExam || selectedVideo || selectedCard);
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] -mx-4 lg:-mx-6 -my-4 lg:-my-6">
@@ -90,6 +130,15 @@ export function JournalPage() {
         <Link href="/dashboard/learn"><Button variant="ghost" size="sm" className="h-7 text-xs"><ArrowLeft className="mr-1 h-3 w-3" />My Learning</Button></Link>
         <Separator orientation="vertical" className="h-5" />
         <h1 className="text-sm font-semibold">Study Journal</h1>
+        {/* Session chip — mirrors the /dashboard/learn subtitle so users
+            recognise which board/class/session the listed notes & exams
+            belong to. Hidden on very narrow viewports to keep the bar clean. */}
+        {boardName && grade ? (
+          <span className="text-[10px] text-muted-foreground hidden sm:inline">
+            {boardName} · Class {grade}
+            {academicYear ? ` · ${academicYear}` : ""}
+          </span>
+        ) : null}
         <div className="flex-1" />
         <span className="text-[10px] text-muted-foreground">{total} items</span>
       </div>
@@ -100,6 +149,7 @@ export function JournalPage() {
           <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSearchQuery(""); setSelectedId(null); }} className="flex flex-col flex-1">
             <div className="px-3 pt-2 pb-1 space-y-2 shrink-0">
               <TabsList className="w-full">
+                <TabsTrigger value="cards" className="flex-1 gap-1 text-xs"><Sparkles className="h-3 w-3" />Cards</TabsTrigger>
                 <TabsTrigger value="notes" className="flex-1 gap-1 text-xs"><StickyNote className="h-3 w-3" />Notes</TabsTrigger>
                 <TabsTrigger value="chats" className="flex-1 gap-1 text-xs"><MessageSquare className="h-3 w-3" />Chats</TabsTrigger>
                 <TabsTrigger value="exams" className="flex-1 gap-1 text-xs"><GraduationCap className="h-3 w-3" />Exams</TabsTrigger>
@@ -112,6 +162,40 @@ export function JournalPage() {
             </div>
 
             <ScrollArea className="flex-1">
+              {/* Visual Cards (explainer) list */}
+              <TabsContent value="cards" className="m-0 p-0">
+                {loading ? <div className="py-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-violet-600" /></div> : (items as CardSessionItem[]).length === 0 ? (
+                  <div className="py-8 text-center text-xs text-muted-foreground">No visual card sessions yet</div>
+                ) : (
+                  <div className="divide-y">
+                    {(items as CardSessionItem[]).map((c) => {
+                      const total = c.card_count ?? (c.cards_json?.length ?? 0);
+                      return (
+                        <button key={c.id} onClick={() => setSelectedId(c.id)}
+                          className={`flex items-start gap-2.5 w-full px-3 py-2.5 text-left transition-colors ${selectedId === c.id ? "bg-primary/10" : "hover:bg-muted/50"}`}>
+                          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md mt-0.5 ${c.completed ? "bg-emerald-100 text-emerald-600" : "bg-violet-100 text-violet-600"}`}>
+                            {c.completed ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-medium truncate">{highlightText(c.topic_title, searchQuery)}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <Badge variant="secondary" className="text-[8px]">{c.subject_name}</Badge>
+                              <Badge variant="outline" className="text-[8px]">{LEVEL_LABEL[c.current_level] ?? "Standard"}</Badge>
+                              <span className="text-[9px] text-muted-foreground">
+                                {c.completed ? `${total} cards` : `${c.cards_completed}/${total || "?"}`}
+                              </span>
+                            </div>
+                            <div className="text-[9px] text-muted-foreground mt-0.5">
+                              {c.completed ? "Completed" : "In progress"} · {new Date(c.updated_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </TabsContent>
+
               {/* Notes list */}
               <TabsContent value="notes" className="m-0 p-0">
                 {loading ? <div className="py-8 text-center"><Loader2 className="h-5 w-5 animate-spin mx-auto text-violet-600" /></div> : (items as NoteItem[]).length === 0 ? (
@@ -251,7 +335,7 @@ export function JournalPage() {
               <div className="flex flex-col items-center justify-center h-full text-center px-4">
                 <StickyNote className="h-12 w-12 text-muted-foreground/20 mb-4" />
                 <p className="text-sm font-medium">Select an item</p>
-                <p className="text-xs text-muted-foreground mt-1">Click on a note, chat, or exam from the left panel to view details</p>
+                <p className="text-xs text-muted-foreground mt-1">Click a card session, note, chat, or exam from the left panel to view details</p>
               </div>
             ) : selectedNote ? (
               /* ===== Note Detail ===== */
@@ -451,10 +535,96 @@ export function JournalPage() {
                   );
                 })()}
               </div>
+            ) : selectedCard ? (
+              /* ===== Visual Card Session Detail ===== */
+              (() => {
+                const deckCards = selectedCard.cards_json ?? [];
+                const extraCards = selectedCard.extra_cards ?? [];
+                const totalCards = selectedCard.card_count ?? deckCards.length;
+                const minutes = Math.max(1, Math.round((selectedCard.time_spent_secs ?? 0) / 60));
+                return (
+                  <div className="max-w-3xl mx-auto px-6 py-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge variant="secondary" className="text-[10px]">{selectedCard.subject_name}</Badge>
+                          <span className="text-[10px] text-muted-foreground">Ch {selectedCard.chapter_number} · {selectedCard.chapter_title}</span>
+                        </div>
+                        <h2 className="text-lg font-bold">{selectedCard.topic_title}</h2>
+                        <div className="flex items-center gap-2 mt-1">
+                          <Badge className="text-[9px] bg-violet-500">{LEVEL_LABEL[selectedCard.current_level] ?? "Standard"}</Badge>
+                          {selectedCard.completed
+                            ? <Badge className="text-[9px] bg-emerald-500">Completed</Badge>
+                            : <Badge variant="outline" className="text-[9px]">In progress</Badge>}
+                          <span className="text-[10px] text-muted-foreground">{new Date(selectedCard.updated_at).toLocaleString()}</span>
+                        </div>
+                      </div>
+                      <Link href={`/topics/${selectedCard.topic_id}/learn`}>
+                        <Button size="sm" className="h-7 text-xs bg-violet-600 hover:bg-violet-700">
+                          <Sparkles className="h-3 w-3 mr-1" />{selectedCard.completed ? "Review" : "Resume"}
+                        </Button>
+                      </Link>
+                    </div>
+
+                    {/* Summary stats */}
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-4">
+                      <StatBox label="Cards" value={`${selectedCard.cards_completed}/${totalCards || "?"}`} />
+                      <StatBox label="Minutes" value={minutes} />
+                      <StatBox label="Re-explains" value={selectedCard.re_explanations} />
+                      <StatBox label="Questions" value={selectedCard.questions_asked} />
+                      <StatBox label="Level" value={LEVEL_LABEL[selectedCard.current_level] ?? "—"} />
+                    </div>
+
+                    {(selectedCard.level_dropped || selectedCard.level_raised) && (
+                      <div className="mb-4 text-[11px] text-muted-foreground">
+                        {selectedCard.level_dropped && <span className="mr-2">Dropped to Foundation for extra support.</span>}
+                        {selectedCard.level_raised && <span>Reached Advanced level.</span>}
+                      </div>
+                    )}
+
+                    <Separator className="mb-4" />
+
+                    {/* The cards, read-only */}
+                    {deckCards.length === 0 && extraCards.length === 0 ? (
+                      <p className="text-center text-xs text-muted-foreground py-8">
+                        No cards stored for this session yet.
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        {deckCards.map((card, i) => (
+                          <ExplainerCard key={`d-${i}`} card={card} />
+                        ))}
+                        {extraCards.length > 0 && (
+                          <>
+                            <h3 className="text-sm font-semibold pt-2 flex items-center gap-1.5">
+                              <Sparkles className="h-4 w-4 text-amber-500" /> Extra explanations &amp; answers
+                            </h3>
+                            {extraCards.map((card, i) => (
+                              <ExplainerCard key={`e-${i}`} card={card} />
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()
             ) : null}
           </ScrollArea>
         </main>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+function StatBox({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg border bg-muted/30 px-3 py-2 text-center">
+      <div className="text-base font-semibold">{value}</div>
+      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
     </div>
   );
 }
