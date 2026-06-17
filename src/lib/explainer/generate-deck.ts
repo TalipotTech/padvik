@@ -13,7 +13,6 @@ import {
   EXPLAINER_SYSTEM_PROMPT,
 } from "@/lib/ai/prompts/visual-explainer";
 import {
-  ExplainerDeckSchema,
   ExplainerCardSchema,
   cardHasVisual,
   extractJson,
@@ -88,7 +87,11 @@ async function loadTopicContext(topicId: number): Promise<TopicContext | null> {
 export async function generateTopicDeck(
   topicId: number,
   level: 1 | 2 | 3,
-  language: string = "en"
+  language: string = "en",
+  opts: {
+    model?: (typeof AI_MODELS)[keyof typeof AI_MODELS];
+    maxCards?: number;
+  } = {}
 ): Promise<GenerateDeckResult> {
   const ctx = await loadTopicContext(topicId);
   if (!ctx) {
@@ -104,6 +107,7 @@ export async function generateTopicDeck(
     level,
     language,
     learningObjectives: ctx.learningObjectives,
+    maxCards: opts.maxCards,
   });
 
   // SVG diagrams are token-heavy — a 3–7 card deck with several inline SVGs
@@ -114,7 +118,10 @@ export async function generateTopicDeck(
   const result = await aiChat(
     userPrompt,
     {
-      model: AI_MODELS.PRIMARY,
+      // Default Sonnet (best quality) for bulk pre-generation; callers can pass
+      // a faster model (Haiku) for on-demand first-open so students don't wait
+      // 30–40s. Pre-generated Sonnet decks always take precedence when present.
+      model: opts.model ?? AI_MODELS.PRIMARY,
       systemPrompt: EXPLAINER_SYSTEM_PROMPT,
       temperature: 0.4,
       maxTokens,
@@ -136,31 +143,51 @@ export async function generateTopicDeck(
     );
   }
 
-  // Parse + validate
+  // Parse + validate. We validate CARD BY CARD and keep the good ones rather
+  // than rejecting the whole deck if a single card is malformed — faster models
+  // (Haiku) occasionally emit one off-spec card, and salvaging the rest is far
+  // better UX than a hard failure.
   const raw = extractJson(result.content);
-  const parsed = ExplainerDeckSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(
-      `AI returned invalid deck JSON: ${parsed.error.issues[0]?.message ?? "unknown"}`
-    );
+  const rawCards: unknown[] = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as { cards?: unknown }).cards)
+      ? ((raw as { cards: unknown[] }).cards)
+      : [];
+
+  if (rawCards.length === 0) {
+    throw new Error("AI returned no cards array");
   }
 
   const validCards: ExplainerCard[] = [];
-  for (let i = 0; i < parsed.data.cards.length; i++) {
-    const card = parsed.data.cards[i];
-    if (!cardHasVisual(card)) {
-      // Skip text-only cards — the prompt forbids them.
-      continue;
+  let rejected = 0;
+  for (const candidate of rawCards) {
+    const parsed = ExplainerCardSchema.safeParse(candidate);
+    if (!parsed.success) {
+      rejected++;
+      continue; // skip a malformed card, keep the rest
+    }
+    if (!cardHasVisual(parsed.data)) {
+      rejected++;
+      continue; // skip text-only cards — the prompt forbids them
     }
     validCards.push({
-      ...card,
-      position: i + 1,
+      ...parsed.data,
+      position: validCards.length + 1,
       isPreGenerated: true,
     });
   }
 
-  if (validCards.length === 0) {
-    throw new Error("AI returned no cards with visuals");
+  if (rejected > 0) {
+    console.warn(
+      `[explainer] topic ${topicId}: kept ${validCards.length}/${rawCards.length} cards (${rejected} invalid/text-only)`
+    );
+  }
+
+  // Need at least a couple of usable cards to be worth showing.
+  if (validCards.length < 2) {
+    throw new Error(
+      `AI returned too few valid cards (${validCards.length}); regenerate.`
+    );
   }
 
   const totalReadTime = validCards.reduce(

@@ -12,6 +12,7 @@ import { db } from "@/db";
 import { topicExplainerDecks, studentExplainerProgress } from "@/db/schema/explainers";
 import { topics, chapters, subjects, standards, boards } from "@/db/schema/curriculum";
 import { generateTopicDeck } from "@/lib/explainer/generate-deck";
+import { AI_MODELS } from "@/lib/ai/provider";
 import type { ExplainerCard } from "@/lib/explainer/types";
 
 async function getUserId(): Promise<number | null> {
@@ -118,9 +119,15 @@ export async function GET(
 
   // Fallback — generate Level 2 on demand if we have nothing at all for this
   // topic. This keeps the UX working even before the admin bulk-fills.
+  // Use the faster BULK model (Haiku) here so the student isn't blocked for
+  // 30–40s on a Sonnet generation; admin bulk pre-generation uses Sonnet for
+  // higher quality and those cached decks take precedence whenever present.
   if (!deck) {
     try {
-      await generateTopicDeck(topicId, level === 1 ? 2 : level, language);
+      await generateTopicDeck(topicId, level === 1 ? 2 : level, language, {
+        model: AI_MODELS.BULK,
+        maxCards: 4,
+      });
       [deck] = await db
         .select()
         .from(topicExplainerDecks)

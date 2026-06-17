@@ -11,7 +11,7 @@ import {
   EXPLAINER_SYSTEM_PROMPT,
 } from "@/lib/ai/prompts/visual-explainer";
 import {
-  ExplainerDeckSchema,
+  ExplainerCardSchema,
   cardHasVisual,
   extractJson,
   type Approach,
@@ -90,16 +90,25 @@ export async function generateReExplanation(options: {
     );
   }
 
+  // Tolerate either { cards: [...] } or a bare card / array; pick the first
+  // card that validates and has a visual (Haiku occasionally wraps oddly).
   const raw = extractJson(result.content);
-  const parsed = ExplainerDeckSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(
-      `AI returned invalid card JSON: ${parsed.error.issues[0]?.message ?? "unknown"}`
-    );
+  const candidates: unknown[] = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as { cards?: unknown }).cards)
+      ? ((raw as { cards: unknown[] }).cards)
+      : [raw];
+
+  let card: ExplainerCard | undefined;
+  for (const candidate of candidates) {
+    const parsed = ExplainerCardSchema.safeParse(candidate);
+    if (parsed.success && cardHasVisual(parsed.data)) {
+      card = parsed.data;
+      break;
+    }
   }
-  const card = parsed.data.cards[0];
-  if (!card || !cardHasVisual(card)) {
-    throw new Error("AI returned a text-only card — visual required");
+  if (!card) {
+    throw new Error("AI returned no valid card with a visual");
   }
 
   return {

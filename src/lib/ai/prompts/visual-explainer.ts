@@ -58,6 +58,9 @@ export interface DeckPromptContext {
   level: 1 | 2 | 3;
   language?: string;
   learningObjectives?: string[];
+  /** Cap the number of cards. On-demand (cold-open) uses a small range so the
+   *  student isn't kept waiting; bulk pre-generation leaves it unset (3–7). */
+  maxCards?: number;
 }
 
 const LEVEL_GUIDANCE: Record<1 | 2 | 3, string> = {
@@ -82,8 +85,12 @@ export function buildDeckUserPrompt(ctx: DeckPromptContext): string {
   lines.push("");
   lines.push(LEVEL_GUIDANCE[ctx.level]);
   lines.push("");
+  const countInstruction =
+    ctx.maxCards && ctx.maxCards <= 5
+      ? `Produce exactly 3–${ctx.maxCards} cards — keep it tight and fast, only the essential concepts.`
+      : "Produce 3–7 cards.";
   lines.push(
-    "Produce 3–7 cards. Vary the approach (mix diagram, analogy, numerical, real_world, comparison, guided_problem). At least half the cards must include an SVG diagram or an analogy block. Return ONLY the JSON object described above."
+    `${countInstruction} Vary the approach (mix diagram, analogy, numerical, real_world, comparison, guided_problem). At least half the cards must include an SVG diagram or an analogy block. Return ONLY the JSON object described above.`
   );
   return lines.join("\n");
 }
