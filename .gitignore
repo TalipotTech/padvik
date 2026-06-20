@@ -45,7 +45,8 @@ Thumbs.db
 desktop.ini
 
 # Drizzle
-drizzle/meta/
+# NOTE: drizzle/meta/ is intentionally committed — drizzle-kit migrate needs
+# _journal.json + snapshots to know which migrations to apply on deploy (Railway).
 
 # Sentry
 .sentryclirc

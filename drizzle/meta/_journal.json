@@ -1,0 +1,132 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1774957006913,
+      "tag": "0000_modern_micromacro",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1775258953958,
+      "tag": "0001_new_moon_knight",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1775477669656,
+      "tag": "0002_overconfident_peter_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775518127811,
+      "tag": "0003_silent_longshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775538532638,
+      "tag": "0004_panoramic_stick",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775559008778,
+      "tag": "0005_tan_captain_midlands",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1775669427766,
+      "tag": "0006_dizzy_cardiac",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1775672083932,
+      "tag": "0007_curved_maelstrom",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775701146564,
+      "tag": "0008_keen_mulholland_black",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1775723923964,
+      "tag": "0009_supreme_silhouette",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1775782919927,
+      "tag": "0010_lively_zombie",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1775786597802,
+      "tag": "0011_green_quentin_quire",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1775796206066,
+      "tag": "0012_green_wolfsbane",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1775806515800,
+      "tag": "0013_nosy_wrecking_crew",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1776966476393,
+      "tag": "0014_black_lady_ursula",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1781672875843,
+      "tag": "0015_soft_doomsday",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1781677448176,
+      "tag": "0016_quick_star_brand",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1781963963905,
+      "tag": "0017_green_wolverine",
+      "breakpoints": true
+    }
+  ]
+}
