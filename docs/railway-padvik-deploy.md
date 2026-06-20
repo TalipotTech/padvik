@@ -12,10 +12,31 @@ Padvik: **4 Railway services in one project** — Postgres, Redis, `web`, `worke
 | `web`      | GitHub repo       | `railway.web.json`      | `pnpm start`    |
 | `worker`   | GitHub repo (same)| `railway.worker.json`   | `pnpm workers`  |
 
-Both app services build from the **same repo**. Set each service's
-**Settings → Config-as-code → Config File Path** to its file above.
-`web` runs `pnpm db:migrate` as a **pre-deploy** step (migrations apply once,
-on the web service only). `worker` does not migrate.
+Both app services build from the **same repo** (Nixpacks auto-detect).
+
+> ⚠️ **What actually worked (2026-06-20 deploy):** Railway's *config-as-code file
+> path* (`railwayConfigFile`) would **not persist** for these services — it stayed
+> `null`, so `railway.web.json` / `railway.worker.json` were silently ignored and
+> both services fell back to the Nixpacks default (`next start`). The reliable fix
+> was setting the **start command directly as a service setting** (Settings →
+> Deploy → *Custom Start Command*, or via the API `serviceInstanceUpdate`):
+>
+> | Service | Custom Start Command | Healthcheck |
+> | ------- | -------------------- | ----------- |
+> | `web`   | `pnpm db:migrate && pnpm start` | `/api/health` |
+> | `worker`| `pnpm workers`       | (none) |
+>
+> Migrations run **in the web start command** (not pre-deploy): `railway redeploy`
+> reuses the prior build and skips `preDeployCommand`, and the config file that
+> would carry it wasn't applied. Chaining `pnpm db:migrate` into the start command
+> guarantees the schema is applied on every web boot (idempotent; fine for a single
+> web instance — for multiple web replicas, move migration to a one-off release job
+> to avoid concurrent migrate races). The JSON files are kept as documentation of
+> intent; the service settings are the source of truth.
+>
+> Also note: `railway redeploy` / config-only changes do **not** pick up new service
+> settings — trigger a genuinely new deployment (API `serviceInstanceDeployV2`, a
+> git push, or `railway up`) after changing a start command.
 
 ## Environment variables
 
