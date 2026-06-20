@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "pnpm start",
+    "startCommand": "pnpm db:migrate && pnpm start",
     "preDeployCommand": "pnpm db:migrate",
     "healthcheckPath": "/api/health",
     "healthcheckTimeout": 120,
