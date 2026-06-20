@@ -6,7 +6,11 @@
  *           per-provider rate limiting via Redis.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import type { MessageParam, ContentBlockParam } from "@anthropic-ai/sdk/resources/messages";
+import type {
+  MessageParam,
+  ContentBlockParam,
+  MessageCreateParamsNonStreaming,
+} from "@anthropic-ai/sdk/resources/messages";
 import { GoogleGenAI } from "@google/genai";
 import { Mistral } from "@mistralai/mistralai";
 import OpenAI from "openai";
@@ -21,6 +25,9 @@ export const AI_MODELS = {
   // Anthropic — primary for complex tasks (Claude Sonnet 4.6, latest)
   PRIMARY: "claude-sonnet-4-6",
   BULK: "claude-haiku-4-5-20251001",
+  // Highest-quality reasoning tier (Claude Opus 4.8). Note: this tier rejects
+  // sampling params (temperature/top_p) — callAnthropic handles that.
+  REASONING: "claude-opus-4-8",
 
   // Google Gemini — multimodal, strong multilingual (Hindi, Tamil, Malayalam, etc.)
   GEMINI_PRO: "gemini-2.5-pro",
@@ -200,6 +207,8 @@ function getProvider(model: AIModel): Provider {
 // Cost per 1M tokens (USD) — approximate, update as pricing changes
 const COST_PER_1M: Record<string, { input: number; output: number }> = {
   // Anthropic
+  "claude-opus-4-8": { input: 5.0, output: 25.0 },
+  "claude-opus-4-7": { input: 5.0, output: 25.0 },
   "claude-sonnet-4-6": { input: 3.0, output: 15.0 },
   "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
   "claude-haiku-4-5-20251001": { input: 0.8, output: 4.0 },
@@ -295,6 +304,19 @@ export interface AICallOptions {
   provider?: AIProviderName;
   /** Language hint for routing — Indic languages route to Gemini for OCR/vision tasks */
   language?: string;
+  /**
+   * Reasoning effort for Anthropic reasoning-tier models (Opus 4.6+/Fable).
+   * Ignored by non-reasoning models. Defaults to "medium".
+   */
+  effort?: "low" | "medium" | "high" | "xhigh" | "max";
+}
+
+/**
+ * Anthropic reasoning-tier models (Opus 4.6/4.7/4.8, Fable) use adaptive
+ * thinking + effort and REJECT sampling params (temperature/top_p) with a 400.
+ */
+function isReasoningTierModel(model: string): boolean {
+  return /^claude-opus-4-[678]/.test(model) || model.startsWith("claude-fable");
 }
 
 export interface AICallResult {
@@ -374,18 +396,33 @@ async function callAnthropic(
   const start = Date.now();
   let lastError: unknown;
 
+  const reasoning = isReasoningTierModel(model);
+
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const response = await client.messages.create({
+      // Reasoning-tier models (Opus 4.6+/Fable) reject temperature/top_p — send
+      // adaptive thinking + effort instead. Other models keep temperature.
+      const params: Record<string, unknown> = {
         model,
         max_tokens: options.maxTokens ?? 4096,
-        temperature: options.temperature ?? 0.3,
-        ...(options.systemPrompt ? { system: options.systemPrompt } : {}),
         messages,
-      });
+      };
+      if (options.systemPrompt) params.system = options.systemPrompt;
+      if (reasoning) {
+        params.thinking = { type: "adaptive" };
+        params.output_config = { effort: options.effort ?? "medium" };
+      } else {
+        params.temperature = options.temperature ?? 0.3;
+      }
 
-      const content =
-        response.content[0].type === "text" ? response.content[0].text : "";
+      const response = await client.messages.create(
+        params as unknown as MessageCreateParamsNonStreaming
+      );
+
+      // Pull the text block (with adaptive thinking, content[0] may be a
+      // thinking block, so don't index blindly).
+      const textBlock = response.content.find((b) => b.type === "text");
+      const content = textBlock?.type === "text" ? textBlock.text : "";
 
       return {
         content,
@@ -544,6 +581,13 @@ async function callOpenAICompatible(
         messages: fullMessages,
         temperature: options.temperature ?? 0.3,
         max_tokens: options.maxTokens ?? 4096,
+        // OpenAI JSON mode improves structured-output validity. Perplexity's
+        // OpenAI-compatible endpoint doesn't support response_format, so gate
+        // it to OpenAI only. (Requires "json" in the prompt, which our
+        // generators include.)
+        ...(options.jsonOutput && providerName === "openai"
+          ? { response_format: { type: "json_object" as const } }
+          : {}),
       });
 
       const content = response.choices[0]?.message?.content ?? "";

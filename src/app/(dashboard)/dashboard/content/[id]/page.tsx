@@ -10,11 +10,15 @@ import { MarkdownRenderer } from "@/components/content/markdown-renderer";
 import { OcrBlockRenderer } from "@/components/content/ocr-block-renderer";
 import { ImageLightbox } from "@/components/content/image-lightbox";
 import { type OcrBlock } from "@/lib/content-pipeline/ocr-blocks";
+import { BlockView } from "@/components/explainer/blocks";
+import type { ContentBlock } from "@/lib/explainer/types";
 import { useViewTracking } from "@/hooks/use-view-tracking";
+import { cn } from "@/lib/utils";
 import {
   Loader2, ArrowLeft, Eye, FileText, FileVideo, FileAudio,
   Image as ImageIcon, BookOpen, Download, HelpCircle, Send, X,
   Paperclip, Camera, Mic, Square, Sparkles, MessageCircle, ZoomIn,
+  CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -98,20 +102,33 @@ export default function StudentContentViewPage() {
       {content.description && <p className="text-sm text-muted-foreground">{content.description}</p>}
 
       {/* Media content */}
-      {content.contentType === "video" && content.mediaUrl && (
-        <div className="rounded-lg border bg-black overflow-hidden">
-          <video
-            src={content.mediaUrl}
-            controls
-            className="w-full aspect-video"
-            poster={content.thumbnailUrl || undefined}
-            onPlay={onPlay}
-            onPause={onPause}
-            onTimeUpdate={onTimeUpdate}
-            onEnded={onEnded}
-          />
-        </div>
-      )}
+      {content.contentType === "video" && content.mediaUrl && (() => {
+        const embed = youtubeEmbedUrl(content.mediaUrl);
+        return embed ? (
+          <div className="aspect-video w-full overflow-hidden rounded-lg border bg-black">
+            <iframe
+              src={embed}
+              title={content.title}
+              className="h-full w-full"
+              allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        ) : (
+          <div className="rounded-lg border bg-black overflow-hidden">
+            <video
+              src={content.mediaUrl}
+              controls
+              className="w-full aspect-video"
+              poster={content.thumbnailUrl || undefined}
+              onPlay={onPlay}
+              onPause={onPause}
+              onTimeUpdate={onTimeUpdate}
+              onEnded={onEnded}
+            />
+          </div>
+        );
+      })()}
 
       {content.contentType === "audio" && content.mediaUrl && (
         <Card>
@@ -185,8 +202,28 @@ export default function StudentContentViewPage() {
         </Card>
       )}
 
-      {/* Text/Note body — prefer structured OCR blocks when available for cleaner rendering */}
+      {/* Text/Note body — render structured auto-content, OCR blocks, or markdown */}
       {(() => {
+        // Auto-content stores body as a JSON array: ContentBlock[] (notes) or
+        // GeneratedQuestion[] (question sets). Render those richly.
+        const structured = parseJsonArray(content.body);
+
+        if (content.contentType === "question_set" && structured) {
+          return <QuestionSetView questions={structured} />;
+        }
+        if (structured && structured.length > 0 && typeof structured[0].type === "string") {
+          return (
+            <Card>
+              <CardContent className="space-y-4 py-6">
+                {structured.map((b, i) => (
+                  <BlockView key={i} block={b as unknown as ContentBlock} />
+                ))}
+              </CardContent>
+            </Card>
+          );
+        }
+
+        // Prefer structured OCR blocks when available for cleaner rendering
         const meta = (content.metadata as Record<string, unknown> | null) ?? {};
         const ocrBlockGroups = meta.ocrBlocks as OcrBlock[][] | undefined;
         // Flatten per-image block arrays into a single list
@@ -242,6 +279,115 @@ export default function StudentContentViewPage() {
         );
       })()}
     </div>
+  );
+}
+
+// ── Structured auto-content rendering (notes & question sets) ──
+
+/** Convert a YouTube watch/share URL into an embeddable URL (or null). */
+function youtubeEmbedUrl(url: string | null): string | null {
+  if (!url) return null;
+  const m = url.match(/(?:v=|youtu\.be\/|\/embed\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+  return m ? `https://www.youtube.com/embed/${m[1]}` : null;
+}
+
+/** Parse a body string into a JSON array, or null if it isn't one. */
+function parseJsonArray(body: string | null): Record<string, unknown>[] | null {
+  if (!body || !body.trimStart().startsWith("[")) return null;
+  try {
+    const v = JSON.parse(body);
+    return Array.isArray(v) ? (v as Record<string, unknown>[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+interface GeneratedQuestionLike {
+  questionText: string;
+  questionType: string;
+  options?: { id: string; text: string; isCorrect: boolean }[];
+  correctAnswer?: string;
+  solution?: string;
+  marks?: number;
+  difficulty?: string;
+}
+
+function QuestionSetView({ questions }: { questions: Record<string, unknown>[] }) {
+  return (
+    <div className="space-y-4">
+      {questions.map((q, i) => (
+        <QuestionItem key={i} index={i} q={q as unknown as GeneratedQuestionLike} />
+      ))}
+    </div>
+  );
+}
+
+function QuestionItem({ index, q }: { index: number; q: GeneratedQuestionLike }) {
+  const [showAnswer, setShowAnswer] = useState(false);
+  return (
+    <Card>
+      <CardContent className="space-y-3 py-4">
+        <div className="flex items-start justify-between gap-2">
+          <p className="font-medium">
+            <span className="mr-1 text-violet-600">Q{index + 1}.</span>
+            {q.questionText}
+          </p>
+          <div className="flex shrink-0 gap-1">
+            {q.marks != null && (
+              <Badge variant="outline" className="text-[10px]">
+                {q.marks} mark{q.marks > 1 ? "s" : ""}
+              </Badge>
+            )}
+            {q.difficulty && (
+              <Badge variant="secondary" className="text-[10px] capitalize">
+                {q.difficulty}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {q.options && q.options.length > 0 && (
+          <ul className="space-y-1.5">
+            {q.options.map((o) => (
+              <li
+                key={o.id}
+                className={cn(
+                  "flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm",
+                  showAnswer && o.isCorrect && "border-green-500 bg-green-500/10"
+                )}
+              >
+                <span className="font-medium">{o.id}.</span>
+                <span className="flex-1">{o.text}</span>
+                {showAnswer && o.isCorrect && (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <Button variant="ghost" size="sm" onClick={() => setShowAnswer((s) => !s)}>
+          {showAnswer ? "Hide answer" : "Show answer"}
+        </Button>
+
+        {showAnswer && (
+          <div className="space-y-2 rounded-md bg-muted/50 p-3 text-sm">
+            {q.correctAnswer && (
+              <p>
+                <span className="font-medium">Answer: </span>
+                {q.correctAnswer}
+              </p>
+            )}
+            {q.solution && (
+              <div>
+                <p className="font-medium">Solution</p>
+                <p className="whitespace-pre-wrap text-muted-foreground">{q.solution}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

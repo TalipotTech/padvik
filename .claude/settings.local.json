@@ -299,7 +299,17 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); t=d.get\\('data',{}\\).get\\('topic',{}\\); print\\(json.dumps\\(t, indent=2, ensure_ascii=False\\)\\)\")",
       "Bash(curl -s -w \"status:%{http_code} \" \"http://localhost:3000/api/topics/13/explainer/status\" -o /dev/null)",
       "Bash(curl -s -w \"page:%{http_code}\\\\n\" \"http://localhost:3000/topics/13/learn\" -o /dev/null)",
-      "Bash(grep -ivE \"cards|explainer|student_explainer|deck|p\\\\.|d\\\\.|topic|chapter|subject|board|standards|countResult|NextResponse|SELECT|FROM|JOIN|WHERE|ORDER|LIMIT|LEFT|^\\\\+\\\\+\\\\+|extra_cards|level|completed|//|\\\\*\")"
+      "Bash(grep -ivE \"cards|explainer|student_explainer|deck|p\\\\.|d\\\\.|topic|chapter|subject|board|standards|countResult|NextResponse|SELECT|FROM|JOIN|WHERE|ORDER|LIMIT|LEFT|^\\\\+\\\\+\\\\+|extra_cards|level|completed|//|\\\\*\")",
+      "Bash(Select-Object -Last 40)",
+      "Bash(ls src/app/api/search)",
+      "Bash(ls src/app/api/content)",
+      "Bash(ls src/app/api/explore)",
+      "Bash(ls src/app/api/doubts)",
+      "Bash(ls src/app/api/learn)",
+      "Bash(sed -n '/contentPipelineLogs = pgTable/,/^\\);/p' src/db/schema/system.ts)",
+      "Bash(ls src/instrumentation.ts instrumentation.ts)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)"
     ]
   }
 }

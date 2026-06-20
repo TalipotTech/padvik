@@ -87,6 +87,7 @@ const navItems: NavItem[] = [
   // Coverage is the one-point admin view: Board → Grade → Subject tree with
   // bootstrap → fan-out → auto-publish actions. Proven on CBSE 10 Math.
   { href: "/admin/coverage", label: "Coverage", icon: Layers, roles: ["admin"], section: "Content" },
+  { href: "/auto-content", label: "Auto-Content", icon: Sparkles, roles: ["admin"] },
   { href: "/admin/ai-providers", label: "AI Providers", icon: Cpu, roles: ["admin"] },
 
   // --- Admin: Legacy pipeline (kept for visibility, not the primary flow) ---
@@ -102,6 +103,9 @@ const navItems: NavItem[] = [
   { href: "/question-papers", label: "Question Papers", icon: FileText, roles: ["admin"], section: "Questions" },
   { href: "/question-viewer", label: "Question Viewer", icon: BookMarked, roles: ["admin"] },
   { href: "/question-paper-verifier", label: "Paper Verifier", icon: CheckSquare, roles: ["admin"] },
+
+  // --- Help ---
+  { href: "/help", label: "Help", icon: HelpCircle, roles: ["admin"], section: "Help" },
 
   // --- Common ---
   { href: "/dashboard/settings", label: "Settings", icon: Settings, roles: ["teacher", "admin", "parent"] },

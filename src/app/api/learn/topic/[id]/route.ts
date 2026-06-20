@@ -6,6 +6,8 @@ import { topics, chapters, subjects, standards, boards } from "@/db/schema/curri
 import { contentItems } from "@/db/schema/content";
 import { questions } from "@/db/schema/questions";
 import { readingProgress, userBookmarks, topicUnderstanding } from "@/db/schema/learn";
+import { trackDemandSignal } from "@/lib/auto-content/demand-tracker";
+import { getRedisConnection } from "@/lib/redis";
 
 /**
  * GET /api/learn/topic/[id]
@@ -148,6 +150,23 @@ export async function GET(
   let isBookmarked = false;
 
   const userId = session?.user?.id ? Number(session.user.id) : (process.env.NODE_ENV === "development" ? 1 : null);
+
+  // Demand signal: topic page view (debounced once per student/topic per 24h)
+  if (userId) {
+    void (async () => {
+      try {
+        const redis = getRedisConnection();
+        const key = `demand:view:${userId}:${topicId}`;
+        if (!(await redis.get(key))) {
+          await redis.set(key, "1", "EX", 24 * 60 * 60);
+          await trackDemandSignal(topicId, "view", userId, 0.5);
+        }
+      } catch {
+        /* non-critical */
+      }
+    })();
+  }
+
   if (userId) {
 
     // Reading progress

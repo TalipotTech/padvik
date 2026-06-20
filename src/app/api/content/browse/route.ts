@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { users } from "@/db/schema/auth";
 import { creatorContent, creatorProfiles } from "@/db/schema/creators";
 import { eq, and, ilike, desc, sql } from "drizzle-orm";
 import { z } from "zod/v4";
+import { trackDemandSignal } from "@/lib/auto-content/demand-tracker";
 
 const querySchema = z.object({
   contentType: z.string().optional(),
@@ -80,6 +82,19 @@ export async function GET(request: NextRequest) {
   ]);
 
   const total = countResult[0]?.count ?? 0;
+
+  // Demand signal: a topic-specific browse that surfaced no creator content.
+  if (topicId && total === 0) {
+    void (async () => {
+      try {
+        const s = await auth();
+        const uid = s?.user?.id ? Number(s.user.id) : undefined;
+        await trackDemandSignal(topicId, "search", uid, 2.0);
+      } catch {
+        /* non-critical */
+      }
+    })();
+  }
 
   return NextResponse.json({
     success: true,

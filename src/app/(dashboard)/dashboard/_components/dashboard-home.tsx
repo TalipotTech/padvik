@@ -649,6 +649,25 @@ function AdminSection() {
             </Button>
           </CardContent>
         </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-600" />
+              <h3 className="font-medium text-sm">Auto-Content</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              AI generates study material for high-demand topics. Review, approve & track cost.
+            </p>
+            <div className="flex gap-2 mt-3">
+              <Button asChild variant="outline" size="sm">
+                <Link href="/auto-content">Open Dashboard</Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/help/auto-content">Guide</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
         <SchoolsCard />
       </div>
     </div>

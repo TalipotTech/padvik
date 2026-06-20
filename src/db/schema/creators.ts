@@ -45,6 +45,7 @@ export const creatorProfiles = pgTable(
     // --- Added in pipeline phase ---
     coverImageUrl: text("cover_image_url"),
     verificationStatus: varchar("verification_status", { length: 20 }).notNull().default("unverified"),
+    creatorTier: varchar("creator_tier", { length: 20 }).notNull().default("free"), // free, plus, pro
     totalViews: bigint("total_views", { mode: "number" }).notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

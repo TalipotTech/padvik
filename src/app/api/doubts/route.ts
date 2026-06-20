@@ -7,6 +7,7 @@ import { classrooms } from "@/db/schema/classrooms";
 import { creatorContent } from "@/db/schema/creators";
 import { eq, and, desc, sql, ilike } from "drizzle-orm";
 import { z } from "zod/v4";
+import { trackDemandSignal } from "@/lib/auto-content/demand-tracker";
 
 // ---------------------------------------------------------------------------
 // POST /api/doubts — Student creates a doubt (with optional AI auto-response)
@@ -86,6 +87,35 @@ export async function POST(request: NextRequest) {
     questionText,
     questionImages: Object.keys(metadata).length > 0 ? { ...(questionImages || []), _context: metadata } : (questionImages ?? []),
   }).returning();
+
+  // Demand signal: doubt posted on a topic with no published Padvik content
+  if (topicId) {
+    void (async () => {
+      try {
+        const sysCreatorId = process.env.PADVIK_SYSTEM_CREATOR_ID
+          ? Number(process.env.PADVIK_SYSTEM_CREATOR_ID)
+          : null;
+        const existing = sysCreatorId
+          ? await db
+              .select({ id: creatorContent.id })
+              .from(creatorContent)
+              .where(
+                and(
+                  eq(creatorContent.topicId, topicId),
+                  eq(creatorContent.creatorId, sysCreatorId),
+                  eq(creatorContent.isPublished, true)
+                )
+              )
+              .limit(1)
+          : [];
+        if (existing.length === 0) {
+          await trackDemandSignal(topicId, "doubt_posted", userId, 2.0);
+        }
+      } catch {
+        /* non-critical */
+      }
+    })();
+  }
 
   // AI auto-response: only if AI mode selected (not teacher mode)
   if (useAi) {

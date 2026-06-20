@@ -1,0 +1,1 @@
+ALTER TABLE "creator_profiles" ADD COLUMN "creator_tier" varchar(20) DEFAULT 'free' NOT NULL;

@@ -13,6 +13,7 @@ import { startFileWorker, stopFileWorker } from "./file-worker";
 import { startAllPipelineWorkers, stopAllPipelineWorkers } from "./pipeline-worker";
 import { startCreatorContentWorker, stopCreatorContentWorker } from "./creator-content-worker";
 import { startSchoolImportWorker, stopSchoolImportWorker } from "./school-import-worker";
+import { startAutoContentWorkers, stopAutoContentWorkers } from "../auto-content/jobs";
 import { closeRedis } from "../redis";
 
 async function main() {
@@ -24,6 +25,7 @@ async function main() {
   startAllPipelineWorkers();
   startCreatorContentWorker();
   startSchoolImportWorker();
+  await startAutoContentWorkers();
 
   console.log("[Workers] All workers started. Press Ctrl+C to stop.");
 
@@ -38,6 +40,7 @@ async function main() {
       stopAllPipelineWorkers(),
       stopCreatorContentWorker(),
       stopSchoolImportWorker(),
+      stopAutoContentWorkers(),
     ]);
 
     await closeRedis();

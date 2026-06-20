@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { RequestContentButton } from "@/components/topics/RequestContentButton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -765,6 +766,7 @@ export function LearnView({ topicId }: { topicId: number }) {
                   <Sparkles className="h-10 w-10 text-primary/40 mb-4" />
                   <p className="font-medium">Content being prepared</p>
                   <p className="text-sm text-muted-foreground mt-1">Study notes for this topic are being generated.</p>
+                  <RequestContentButton topicId={topicId} className="mt-5" />
                 </div>
               )}
 

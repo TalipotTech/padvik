@@ -31,3 +31,18 @@ export const legacyNav: AdminNavItem[] = [
   { href: "/admin/pipeline", label: "Pipeline Overview" },
   { href: "/admin/content-review", label: "Review" },
 ];
+
+// Help nav — guides shown under the header "Help" dropdown. Add new guides
+// here and they appear in the menu automatically.
+export interface AdminHelpItem extends AdminNavItem {
+  description?: string;
+}
+
+export const helpNav: AdminHelpItem[] = [
+  { href: "/help", label: "Help Home", description: "All admin guides in one place." },
+  {
+    href: "/help/auto-content",
+    label: "Auto-Content Pipeline",
+    description: "How AI study material is requested, generated, reviewed & billed.",
+  },
+];

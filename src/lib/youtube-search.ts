@@ -6,7 +6,6 @@
  */
 
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
-const API_KEY = process.env.YOUTUBE_API_KEY;
 
 export interface YouTubeVideo {
   videoId: string;
@@ -37,6 +36,9 @@ export interface VideoSearchOptions {
  * Returns videos sorted by relevance with view counts and ratings.
  */
 export async function searchYouTubeVideos(options: VideoSearchOptions): Promise<YouTubeVideo[]> {
+  // Read lazily — workers load .env *after* module import, so a module-level
+  // read would be undefined even when the key is configured.
+  const API_KEY = process.env.YOUTUBE_API_KEY;
   if (!API_KEY) {
     console.warn("[YouTube] No YOUTUBE_API_KEY set — using fallback search");
     return fallbackSearch(options.query, options.maxResults ?? 5);

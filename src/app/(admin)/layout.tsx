@@ -2,7 +2,8 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { PadvikLogo } from "@/components/ui/padvik-logo";
-import { primaryNav, legacyNav } from "./_nav";
+import { primaryNav, legacyNav, helpNav } from "./_nav";
+import { AdminHelpMenu } from "./_components/admin-help-menu";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -47,6 +48,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                   {item.label}
                 </Link>
               ))}
+              <span
+                className="mx-2 hidden h-4 w-px bg-border lg:inline-block"
+                aria-hidden
+              />
+              <AdminHelpMenu />
             </nav>
           </div>
 
@@ -84,6 +90,16 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               title="Legacy"
             >
               {item.label}
+            </Link>
+          ))}
+          <span className="mx-1 h-3 w-px shrink-0 bg-border" aria-hidden />
+          {helpNav.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-violet-600 hover:bg-muted"
+            >
+              {item.label === "Help Home" ? "Help" : item.label}
             </Link>
           ))}
         </div>

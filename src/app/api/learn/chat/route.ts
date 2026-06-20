@@ -7,6 +7,7 @@ import { contentItems } from "@/db/schema/content";
 import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod/v4";
 import { aiChat, AI_MODELS, type AIModel } from "@/lib/ai/provider";
+import { trackDemandSignal } from "@/lib/auto-content/demand-tracker";
 
 /**
  * GET /api/learn/chat?topicId=14 — Get conversation history for a topic
@@ -84,6 +85,9 @@ export async function POST(request: NextRequest) {
   if (!topic) {
     return NextResponse.json({ success: false, error: { code: "NOT_FOUND", message: "Topic not found" } }, { status: 404 });
   }
+
+  // Demand signal: student asked the AI tutor about this topic
+  void trackDemandSignal(topicId, "ask_ai", userId, 1.5).catch(() => {});
 
   // Get content context (first 15KB of published content for this topic)
   const topicContent = await db
