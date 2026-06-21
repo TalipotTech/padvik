@@ -117,5 +117,3 @@ NEXT_PUBLIC_SENTRY_DSN =
 4. Push to `main` (Railway auto-builds). The web pre-deploy migrates the DB.
 5. Verify per playbook §5: `/api/health` → 200, sign-up → login round-trip, worker logs show "All workers started".
 ```
-
-<!-- deploy webhook test: trigger-check -->
