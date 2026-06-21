@@ -66,7 +66,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         role: { label: "Role", type: "text" },
       },
       async authorize(credentials) {
-        if (process.env.NODE_ENV !== "development") return null;
+        // Demo login is dev-only by default; allow in other envs (e.g. a prod
+        // MVP test deployment) when explicitly opted in via ENABLE_DEMO_LOGIN.
+        if (
+          process.env.NODE_ENV !== "development" &&
+          process.env.ENABLE_DEMO_LOGIN !== "true"
+        )
+          return null;
 
         const role = (credentials?.role as string) || "student";
         const demos: Record<string, { name: string; email: string }> = {

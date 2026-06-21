@@ -211,8 +211,9 @@ export default function LoginPage() {
         )}
       </CardContent>
 
-      {/* Demo logins — dev only */}
-      {process.env.NODE_ENV === "development" && (
+      {/* Demo logins — dev only, or when ENABLE_DEMO_LOGIN=true (prod MVP test) */}
+      {(process.env.NODE_ENV === "development" ||
+        process.env.ENABLE_DEMO_LOGIN === "true") && (
         <>
           <div className="px-6">
             <div className="relative">
