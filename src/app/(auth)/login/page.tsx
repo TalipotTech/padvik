@@ -211,9 +211,12 @@ export default function LoginPage() {
         )}
       </CardContent>
 
-      {/* Demo logins — dev only, or when ENABLE_DEMO_LOGIN=true (prod MVP test) */}
+      {/* Demo logins — dev only, or when NEXT_PUBLIC_ENABLE_DEMO_LOGIN=true
+          (prod MVP test). This is a client component, so the UI gate must use a
+          NEXT_PUBLIC_ var (baked at build); the server provider gate in auth.ts
+          uses the runtime ENABLE_DEMO_LOGIN var. */}
       {(process.env.NODE_ENV === "development" ||
-        process.env.ENABLE_DEMO_LOGIN === "true") && (
+        process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === "true") && (
         <>
           <div className="px-6">
             <div className="relative">
