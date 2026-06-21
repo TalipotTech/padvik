@@ -38,6 +38,16 @@ Both app services build from the **same repo** (Nixpacks auto-detect).
 > settings — trigger a genuinely new deployment (API `serviceInstanceDeployV2`, a
 > git push, or `railway up`) after changing a start command.
 
+> ✅ **Update (2026-06-21):** `railway.web.json` / `railway.worker.json` are now
+> **applied and authoritative** (the earlier "config path never persisted" was a
+> *staged* dashboard change that was never applied). **GitHub push-to-deploy now works**
+> — it had been **disabled** in the dashboard (Service → Settings → Source → "Auto
+> deploy"); enabling it + applying the staged Branch/Config-File changes fixed it.
+> **Do NOT add `"build": { "builder": "NIXPACKS" }`** to the config files — forcing
+> Nixpacks breaks the build with `@tailwindcss/oxide: Cannot find native binding`
+> (Tailwind v4). Railway's default builder (Railpack) builds fine; the config files now
+> carry only the `deploy` section.
+
 ## Environment variables
 
 ### Shared (set on BOTH `web` and `worker`)
