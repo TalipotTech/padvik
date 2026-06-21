@@ -30,6 +30,13 @@ export default function LoginPage() {
   const [otpSent, setOtpSent] = useState(false);
   const [phone, setPhone] = useState("");
 
+  // Show the one-click demo logins in dev, or in any env that opts in via
+  // NEXT_PUBLIC_ENABLE_DEMO_LOGIN (baked at build time — this is a client
+  // component, so the value must be a NEXT_PUBLIC_ var present during the build).
+  const demoLoginEnabled =
+    process.env.NODE_ENV === "development" ||
+    process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === "true";
+
   const [loginState, loginFormAction, loginPending] = useActionState<AuthState, FormData>(
     loginAction,
     {}
@@ -211,12 +218,9 @@ export default function LoginPage() {
         )}
       </CardContent>
 
-      {/* Demo logins — dev only, or when NEXT_PUBLIC_ENABLE_DEMO_LOGIN=true
-          (prod MVP test). This is a client component, so the UI gate must use a
-          NEXT_PUBLIC_ var (baked at build); the server provider gate in auth.ts
-          uses the runtime ENABLE_DEMO_LOGIN var. */}
-      {(process.env.NODE_ENV === "development" ||
-        process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === "true") && (
+      {/* Demo logins — see demoLoginEnabled above. The server provider gate in
+          auth.ts uses the runtime ENABLE_DEMO_LOGIN var. */}
+      {demoLoginEnabled && (
         <>
           <div className="px-6">
             <div className="relative">
