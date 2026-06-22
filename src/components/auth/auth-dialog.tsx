@@ -133,8 +133,12 @@ export function AuthDialog({ open, onOpenChange, onSwitchToSignUp }: AuthDialogP
             </Button>
           </form>
 
-          {/* Demo logins — dev only */}
-          {process.env.NODE_ENV === "development" && (
+          {/* Demo logins — dev, or any env that opts in via
+              NEXT_PUBLIC_ENABLE_DEMO_LOGIN (prod MVP test). This is a client
+              component, so the gate uses the build-time NEXT_PUBLIC_ flag; the
+              server demo provider is gated on ENABLE_DEMO_LOGIN in auth.ts. */}
+          {(process.env.NODE_ENV === "development" ||
+            process.env.NEXT_PUBLIC_ENABLE_DEMO_LOGIN === "true") && (
             <>
               <div className="relative">
                 <Separator />
