@@ -14,9 +14,15 @@ import { join, dirname } from "path";
 export const S3_CONFIG = {
   bucket: process.env.AWS_S3_BUCKET || "padvik-uploads",
   region: process.env.AWS_REGION || "ap-south-1",
+  // Custom S3-compatible endpoint (Railway Bucket / Cloudflare R2 / MinIO).
+  // When unset, the AWS SDK uses the default AWS S3 endpoint.
+  endpoint: process.env.S3_ENDPOINT || undefined,
+  // Path-style is required by some S3-compatible providers; default false
+  // (virtual-host), which is what Railway Buckets use.
+  forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
 } as const;
 
-/** Returns true if AWS credentials are configured for S3 uploads */
+/** Returns true if S3 (or S3-compatible) credentials are configured */
 export function isS3Enabled(): boolean {
   return !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY);
 }
@@ -27,6 +33,9 @@ function getS3Client(): S3Client {
   if (!_s3Client) {
     _s3Client = new S3Client({
       region: S3_CONFIG.region,
+      ...(S3_CONFIG.endpoint
+        ? { endpoint: S3_CONFIG.endpoint, forcePathStyle: S3_CONFIG.forcePathStyle }
+        : {}),
       credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
@@ -63,7 +72,10 @@ export async function uploadToStorage(
         ContentDisposition: "inline",
       })
     );
-    return `https://${S3_CONFIG.bucket}.s3.${S3_CONFIG.region}.amazonaws.com/${key}`;
+    // Return a stable app-proxied URL (served by /api/uploads, which streams
+    // from the bucket). Keeps URLs identical to local mode so existing DB
+    // values keep resolving and the bucket can stay private.
+    return `/api/uploads/${key}`;
   }
 
   // Local filesystem fallback
@@ -72,6 +84,36 @@ export async function uploadToStorage(
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(localPath, body);
   return `/api/uploads/${key}`;
+}
+
+// ---------------------------------------------------------------------------
+// Read (stream an object back — used by the /api/uploads proxy route)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch an object from S3-compatible storage for streaming to the client.
+ * Returns null if the object is missing. Only valid when isS3Enabled().
+ */
+export async function getStorageObject(
+  key: string
+): Promise<{ body: ReadableStream; contentType?: string; contentLength?: number } | null> {
+  const client = getS3Client();
+  try {
+    const res = await client.send(
+      new GetObjectCommand({ Bucket: S3_CONFIG.bucket, Key: key })
+    );
+    if (!res.Body) return null;
+    const body = (
+      res.Body as unknown as { transformToWebStream: () => ReadableStream }
+    ).transformToWebStream();
+    return {
+      body,
+      contentType: res.ContentType,
+      contentLength: typeof res.ContentLength === "number" ? res.ContentLength : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -131,14 +173,12 @@ export async function deleteFromStorage(key: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * Convert a storage key to a publicly accessible URL.
- * In S3 mode: returns the full S3 URL.
- * In local mode: returns /api/uploads/{key}.
+ * Convert a storage key to the app-proxied URL (/api/uploads/{key}).
+ * The proxy route streams from S3 (prod) or local disk (dev).
  */
 export function storageKeyToUrl(key: string): string {
-  if (isS3Enabled()) {
-    return `https://${S3_CONFIG.bucket}.s3.${S3_CONFIG.region}.amazonaws.com/${key}`;
-  }
+  // Always the app-proxied path — works for both S3 and local backends and
+  // keeps the bucket private (served by /api/uploads/[...path]).
   return `/api/uploads/${key}`;
 }
 

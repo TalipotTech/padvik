@@ -1,11 +1,14 @@
 import { NextRequest } from "next/server";
-import { readFile, stat } from "fs/promises";
+import { stat } from "fs/promises";
 import { join } from "path";
 import { createReadStream } from "fs";
+import { isS3Enabled, getStorageObject } from "@/lib/s3";
 
 /**
- * GET /api/uploads/{...path} — Serve uploaded files from local filesystem.
- * Uses ReadableStream to avoid Next.js RSC header interference.
+ * GET /api/uploads/{...path} — Serve uploaded files.
+ * In production (S3 enabled) streams from the object store; in dev streams
+ * from the local filesystem. Uses ReadableStream to avoid Next.js RSC header
+ * interference.
  */
 
 // Prevent Next.js from caching or adding RSC headers
@@ -35,6 +38,32 @@ export async function GET(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path: segments } = await params;
+  // Storage key (relative path under data/uploads), sanitized against traversal.
+  const key = segments.join("/").replace(/\\/g, "/").replace(/\.\./g, "");
+  const ext = key.split(".").pop()?.toLowerCase() || "";
+
+  // Production: stream from the S3-compatible object store (shared by web + worker).
+  if (isS3Enabled()) {
+    const obj = await getStorageObject(key);
+    if (!obj) return new Response("Not found", { status: 404 });
+    const contentType =
+      obj.contentType && obj.contentType !== "application/octet-stream"
+        ? obj.contentType
+        : MIME_MAP[ext] || "application/octet-stream";
+    return new Response(obj.body, {
+      status: 200,
+      headers: {
+        "Content-Type": contentType,
+        ...(obj.contentLength ? { "Content-Length": String(obj.contentLength) } : {}),
+        "Content-Disposition": "inline",
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "public, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
+  // Dev fallback: local filesystem.
   const relativePath = `data/uploads/${segments.join("/")}`;
   const normalized = relativePath.replace(/\\/g, "/").replace(/\.\./g, "");
 
@@ -48,7 +77,6 @@ export async function GET(
     const fileStat = await stat(fullPath);
     if (!fileStat.isFile()) return new Response("Not found", { status: 404 });
 
-    const ext = fullPath.split(".").pop()?.toLowerCase() || "";
     const contentType = MIME_MAP[ext] || "application/octet-stream";
 
     // Stream the file using Web ReadableStream from Node.js createReadStream

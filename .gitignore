@@ -68,9 +68,9 @@ sw.js
 workbox-*.js
 swe-worker-*.js
 
-# Uploads (local dev)
-uploads/
-tmp/
+# Uploads (local dev) — anchored so it doesn't also match src/app/api/uploads/
+/data/uploads/
+/tmp/
 
 # Claude Code runtime state
 .claude/scheduled_tasks.lock
