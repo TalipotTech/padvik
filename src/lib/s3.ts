@@ -92,15 +92,27 @@ export async function uploadToStorage(
 
 /**
  * Fetch an object from S3-compatible storage for streaming to the client.
+ * Pass an HTTP `range` header value (e.g. "bytes=0-1000") to request a partial
+ * object — the store echoes `contentRange`, which the caller turns into a 206.
  * Returns null if the object is missing. Only valid when isS3Enabled().
  */
 export async function getStorageObject(
-  key: string
-): Promise<{ body: ReadableStream; contentType?: string; contentLength?: number } | null> {
+  key: string,
+  range?: string
+): Promise<{
+  body: ReadableStream;
+  contentType?: string;
+  contentLength?: number;
+  contentRange?: string;
+} | null> {
   const client = getS3Client();
   try {
     const res = await client.send(
-      new GetObjectCommand({ Bucket: S3_CONFIG.bucket, Key: key })
+      new GetObjectCommand({
+        Bucket: S3_CONFIG.bucket,
+        Key: key,
+        ...(range ? { Range: range } : {}),
+      })
     );
     if (!res.Body) return null;
     const body = (
@@ -110,6 +122,7 @@ export async function getStorageObject(
       body,
       contentType: res.ContentType,
       contentLength: typeof res.ContentLength === "number" ? res.ContentLength : undefined,
+      contentRange: res.ContentRange,
     };
   } catch {
     return null;

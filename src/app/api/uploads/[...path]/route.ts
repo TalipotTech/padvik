@@ -34,7 +34,7 @@ const MIME_MAP: Record<string, string> = {
 };
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   const { path: segments } = await params;
@@ -43,18 +43,22 @@ export async function GET(
   const ext = key.split(".").pop()?.toLowerCase() || "";
 
   // Production: stream from the S3-compatible object store (shared by web + worker).
+  // Honor HTTP Range requests so audio/video players can stream & seek (206).
   if (isS3Enabled()) {
-    const obj = await getStorageObject(key);
+    const range = request.headers.get("range") || undefined;
+    const obj = await getStorageObject(key, range);
     if (!obj) return new Response("Not found", { status: 404 });
     const contentType =
       obj.contentType && obj.contentType !== "application/octet-stream"
         ? obj.contentType
         : MIME_MAP[ext] || "application/octet-stream";
+    const isPartial = !!(range && obj.contentRange);
     return new Response(obj.body, {
-      status: 200,
+      status: isPartial ? 206 : 200,
       headers: {
         "Content-Type": contentType,
         ...(obj.contentLength ? { "Content-Length": String(obj.contentLength) } : {}),
+        ...(obj.contentRange ? { "Content-Range": obj.contentRange } : {}),
         "Content-Disposition": "inline",
         "Accept-Ranges": "bytes",
         "Cache-Control": "public, max-age=86400",
