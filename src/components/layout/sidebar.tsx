@@ -30,6 +30,8 @@ import {
   HelpCircle,
   FolderOpen,
   Inbox,
+  Route,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -67,8 +69,10 @@ interface NavItem {
 const navItems: NavItem[] = [
   // --- Common ---
   { href: "/dashboard", creatorHref: "/dashboard/creator", label: "Dashboard", icon: Home },
+  { href: "/dashboard/search", label: "Search", icon: Search, roles: ["student", "admin"] },
   { href: "/dashboard/syllabus", label: "Curriculum", icon: BookOpen, roles: ["student", "teacher", "admin"] },
   { href: "/dashboard/learn", label: "My Learning", icon: GraduationCap, roles: ["student", "admin"] },
+  { href: "/dashboard/learn/path", label: "Learning Path", icon: Route, roles: ["student", "admin"] },
   { href: "__playground__", label: "Playground", icon: Play, roles: ["student"] },
   { href: "/dashboard/learn/journal", label: "Study Journal", icon: BookMarked, roles: ["student", "admin"] },
   { href: "/dashboard/question-bank", label: "Question Bank", icon: ClipboardList, roles: ["teacher", "admin"] },

@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { generalConversations } from "@/db/schema/general-chat";
-import { eq, desc } from "drizzle-orm";
+import { topics, chapters, subjects } from "@/db/schema/curriculum";
+import { contentItems } from "@/db/schema/content";
+import { eq, desc, and } from "drizzle-orm";
 import { z } from "zod/v4";
 import { aiChat, AI_MODELS, type AIModel } from "@/lib/ai/provider";
 
@@ -79,6 +81,11 @@ const chatSchema = z.object({
   provider: z.enum(["auto", "claude", "gemini", "openai", "mistral"]).nullable().optional(),
   boardCode: z.string().nullable().optional(),
   grade: z.number().int().nullable().optional(),
+  /** Current-topic context — when the student is viewing a specific topic, the
+   *  assistant answers in that context (additive; history is untouched). */
+  topicId: z.number().int().nullable().optional(),
+  topicTitle: z.string().max(500).nullable().optional(),
+  topicSubject: z.string().max(255).nullable().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -97,7 +104,46 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: parsed.error.issues[0].message } }, { status: 400 });
   }
 
-  const { message, conversationId, provider: requestedProvider, boardCode, grade } = parsed.data;
+  const { message, conversationId, provider: requestedProvider, boardCode, grade, topicId, topicTitle, topicSubject } = parsed.data;
+
+  // Build current-topic context (the topic the student is viewing). Prefer a
+  // fresh DB lookup by id (more reliable + pulls study material); fall back to
+  // the title/subject the client passed.
+  let topicContext = "";
+  if (topicId) {
+    try {
+      const [t] = await db
+        .select({
+          title: topics.title,
+          description: topics.description,
+          chapterTitle: chapters.title,
+          subjectName: subjects.name,
+        })
+        .from(topics)
+        .innerJoin(chapters, eq(chapters.id, topics.chapterId))
+        .innerJoin(subjects, eq(subjects.id, chapters.subjectId))
+        .where(eq(topics.id, topicId))
+        .limit(1);
+      if (t) {
+        const [content] = await db
+          .select({ body: contentItems.body })
+          .from(contentItems)
+          .where(and(eq(contentItems.topicId, topicId), eq(contentItems.isPublished, true)))
+          .limit(1);
+        const material = content?.body?.slice(0, 12000) ?? "";
+        topicContext =
+          `The student is currently viewing the topic "${t.title}" (${t.subjectName}${t.chapterTitle ? `, ${t.chapterTitle}` : ""}). ` +
+          `When their question relates to this topic, answer in this context; otherwise answer normally.\n` +
+          (t.description ? `Topic description: ${t.description}\n` : "") +
+          (material ? `Topic study material:\n${material}\n` : "");
+      }
+    } catch {
+      /* non-critical — fall back to whatever the client provided */
+    }
+  }
+  if (!topicContext && topicTitle) {
+    topicContext = `The student is currently viewing the topic "${topicTitle}"${topicSubject ? ` (${topicSubject})` : ""}. When their question relates to it, answer in that context; otherwise answer normally.\n`;
+  }
 
   // Get or create conversation
   type ChatMsg = { role: string; content: string; timestamp: string; provider?: string; model?: string; suggestions?: string[] };
@@ -141,7 +187,7 @@ export async function POST(request: NextRequest) {
   // System prompt
   const boardContext = boardCode && grade ? `The student studies under the ${boardCode} board, Class ${grade}.` : "";
 
-  const systemPrompt = `You are Padvik AI, a friendly and knowledgeable educational assistant for Indian K-12 students. You help with:
+  const systemPrompt = `${topicContext ? `${topicContext}\n` : ""}You are Padvik AI, a friendly and knowledgeable educational assistant for Indian K-12 students. You help with:
 - Explaining concepts from any subject (Math, Science, Social Studies, Languages, etc.)
 - Solving problems step-by-step
 - Answering doubts about homework and exams

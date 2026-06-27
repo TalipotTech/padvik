@@ -46,6 +46,12 @@ const chatSchema = z.object({
   provider: z.enum(["claude", "gemini", "openai", "mistral", "sarvam"]).nullable().optional(),
   /** Selected text context for "Ask AI" from text selection */
   selectedText: z.string().nullable().optional(),
+  /**
+   * Optional scope preamble (additive, backward-compatible). When the in-page
+   * search chat embeds this tutor, it passes a note that constrains the
+   * assistant to the landed topic. Prepended to the system prompt.
+   */
+  topicScopePreamble: z.string().max(1000).nullable().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -66,7 +72,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: { code: "VALIDATION_ERROR", message: parsed.error.issues[0].message } }, { status: 400 });
   }
 
-  const { topicId, message, conversationId, provider: requestedProvider, selectedText } = parsed.data;
+  const { topicId, message, conversationId, provider: requestedProvider, selectedText, topicScopePreamble } = parsed.data;
 
   // Get topic context for the AI
   const [topic] = await db
@@ -143,7 +149,9 @@ export async function POST(request: NextRequest) {
   // Build AI context — last 10 messages for continuity
   const recentMessages = conversation.messages.slice(-10);
 
-  const systemPrompt = `You are a helpful AI tutor for Indian school students. You are helping a student study the following topic:
+  const scopePrefix = topicScopePreamble ? `${topicScopePreamble.trim()}\n\n` : "";
+
+  const systemPrompt = `${scopePrefix}You are a helpful AI tutor for Indian school students. You are helping a student study the following topic:
 
 Subject: ${topic.subjectName}
 Chapter: ${topic.chapterTitle}

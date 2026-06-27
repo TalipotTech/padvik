@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   BookOpen,
   FileText,
@@ -23,6 +24,7 @@ import {
   BookMarked,
   Bell,
   Play,
+  Route,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -35,6 +37,8 @@ import { getSubjects } from "@/lib/data";
 import { DashboardNotifications } from "@/components/notifications/DashboardNotifications";
 import { markClassroomsSeen } from "@/components/classrooms/new-content-badge";
 import { ContentCard, type ContentCardProps } from "@/components/content/content-card";
+import { ContentTypeIcon } from "@/components/content/content-type-icon";
+import { TopicSearchBox } from "@/components/search/topic-search-box";
 
 interface DashboardHomeProps {
   userName: string;
@@ -46,6 +50,7 @@ const studentActions = [
   { href: "/dashboard/learn", label: "My Learning", icon: GraduationCap, color: "text-emerald-600", desc: "Continue where you left off" },
   { href: "__playground__", label: "Playground", icon: Play, color: "text-pink-600", desc: "Jump to your last topic" },
   { href: "/dashboard/learn/journal", label: "Study Journal", icon: BookMarked, color: "text-amber-600", desc: "Notes, chats, videos & exams" },
+  { href: "/dashboard/learn/path", label: "Learning Path", icon: Route, color: "text-violet-600", desc: "What to focus on next" },
   { href: "/dashboard/chat", label: "Ask AI", icon: Sparkles, color: "text-blue-600", desc: "Ask anything about your subjects" },
 ];
 
@@ -97,6 +102,29 @@ function getRoleLabel(role: string) {
 export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
   const { boardId, boardName, grade } = useBoardSelection();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const router = useRouter();
+
+  // Home search box state
+  const [recentSearches, setRecentSearches] = useState<
+    Array<{ id: number; query: string; matchedTopicId: number | null; topicTitle: string | null }>
+  >([]);
+  const isLearner = userRole === "student" || userRole === "teacher" || userRole === "creator";
+
+  useEffect(() => {
+    if (!isLearner) return;
+    fetch("/api/learn/topic-search/history?limit=5")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => { if (json?.success) setRecentSearches(json.data.history ?? []); })
+      .catch(() => {});
+  }, [isLearner]);
+
+  const runHomeSearch = (q: string, topicId?: number | null) => {
+    const trimmed = q.trim();
+    if (trimmed.length < 2) return;
+    const params = new URLSearchParams({ q: trimmed });
+    if (topicId) params.set("topicId", String(topicId));
+    router.push(`/dashboard/search?${params.toString()}`);
+  };
 
   // Board selection is now handled via the CTA banner below — no forced dialog popup
 
@@ -220,6 +248,27 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
           )}
         </div>
       </div>
+
+      {/* Home search box — Google-style topic search with live autocomplete */}
+      {isLearner && (
+        <div className="space-y-2">
+          <TopicSearchBox boardId={boardId} grade={grade} />
+          {recentSearches.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-muted-foreground">Recent:</span>
+              {recentSearches.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() => runHomeSearch(r.query, r.matchedTopicId)}
+                  className="rounded-full border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-violet-400 hover:bg-violet-50 hover:text-violet-700 dark:hover:bg-violet-950/30"
+                >
+                  {r.topicTitle ?? r.query}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Onboarding CTA — shown when board/grade not set */}
       {!boardId && (userRole === "student" || userRole === "teacher" || userRole === "creator") && (
@@ -524,21 +573,6 @@ export function DashboardHome({ userName, userRole }: DashboardHomeProps) {
       <BoardPicker open={pickerOpen} onOpenChange={setPickerOpen} />
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Content type icon for classroom feed
-// ---------------------------------------------------------------------------
-
-function ContentTypeIcon({ type }: { type: string }) {
-  const cls = "h-3.5 w-3.5 shrink-0";
-  switch (type) {
-    case "video": return <Play className={`${cls} text-blue-500`} />;
-    case "audio": return <Activity className={`${cls} text-green-500`} />;
-    case "image": return <Sparkles className={`${cls} text-amber-500`} />;
-    case "document": return <FileText className={`${cls} text-red-500`} />;
-    default: return <BookOpen className={`${cls} text-violet-500`} />;
-  }
 }
 
 function timeAgo(dateStr: string): string {

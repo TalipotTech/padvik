@@ -8,6 +8,7 @@ import {
 import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "@/components/content/markdown-renderer";
 import { useBoardSelection } from "@/hooks/use-board-selection";
+import { useActiveTopic } from "@/hooks/use-active-topic";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -38,6 +39,8 @@ export function FloatingChatWidget() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { boardName, grade } = useBoardSelection();
+  // The topic the student is currently viewing (set by the search page, etc.).
+  const activeTopic = useActiveTopic();
 
   // Auto-scroll
   useEffect(() => {
@@ -96,6 +99,11 @@ export function FloatingChatWidget() {
           provider: "auto",
           boardCode: boardName,
           grade,
+          // Current-topic context — makes answers context-sensitive without
+          // touching the visible conversation/history.
+          topicId: activeTopic?.topicId ?? null,
+          topicTitle: activeTopic?.title ?? null,
+          topicSubject: activeTopic?.subject ?? null,
         }),
       });
       const json = await res.json();
@@ -128,7 +136,7 @@ export function FloatingChatWidget() {
     } finally {
       setSending(false);
     }
-  }, [input, sending, conversationId, boardName, grade]);
+  }, [input, sending, conversationId, boardName, grade, activeTopic]);
 
   const startNewChat = () => {
     setMessages([]);
@@ -158,10 +166,14 @@ export function FloatingChatWidget() {
           <div className="flex items-center justify-between px-4 py-3 bg-violet-600 text-white shrink-0">
             <div className="flex items-center gap-2">
               <Sparkles className="h-5 w-5" />
-              <div>
+              <div className="min-w-0">
                 <h3 className="text-sm font-semibold leading-none">Padvik AI</h3>
-                <p className="text-[10px] text-violet-200 mt-0.5">
-                  {lastProvider ? `via ${lastProvider}` : "Ask anything about your studies"}
+                <p className="text-[10px] text-violet-200 mt-0.5 truncate max-w-[220px]">
+                  {activeTopic
+                    ? `Context: ${activeTopic.title}`
+                    : lastProvider
+                      ? `via ${lastProvider}`
+                      : "Ask anything about your studies"}
                 </p>
               </div>
             </div>
@@ -188,10 +200,15 @@ export function FloatingChatWidget() {
                 <Sparkles className="h-10 w-10 text-violet-300 mb-3" />
                 <p className="text-sm font-medium text-foreground">Hi! I&apos;m Padvik AI</p>
                 <p className="text-xs text-muted-foreground mt-1 max-w-[250px]">
-                  Ask me anything about your studies — Math, Science, Social Studies, or any subject.
+                  {activeTopic
+                    ? `Ask me about ${activeTopic.title} — I have this topic as context.`
+                    : "Ask me anything about your studies — Math, Science, Social Studies, or any subject."}
                 </p>
                 <div className="flex flex-wrap justify-center gap-1.5 mt-4">
-                  {["Explain Pythagoras theorem", "What is photosynthesis?", "Help me with fractions"].map((q) => (
+                  {(activeTopic
+                    ? [`Explain ${activeTopic.title}`, `Give an example of ${activeTopic.title}`, `Quiz me on ${activeTopic.title}`]
+                    : ["Explain Pythagoras theorem", "What is photosynthesis?", "Help me with fractions"]
+                  ).map((q) => (
                     <button key={q} onClick={() => sendMessage(q)}
                       className="text-[10px] px-2.5 py-1 rounded-full border hover:bg-violet-50 hover:border-violet-300 transition-colors text-muted-foreground">
                       {q}

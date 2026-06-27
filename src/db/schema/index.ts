@@ -16,3 +16,4 @@ export * from "./subscriptions";
 export * from "./schools";
 export * from "./explainers";
 export * from "./auto-content";
+export * from "./learning-path";

@@ -127,6 +127,13 @@
       "when": 1781963963905,
       "tag": "0017_green_wolverine",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1782195600108,
+      "tag": "0018_thankful_logan",
+      "breakpoints": true
     }
   ]
 }
